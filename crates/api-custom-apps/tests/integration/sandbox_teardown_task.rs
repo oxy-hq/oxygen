@@ -219,7 +219,7 @@ pub(crate) async fn run_queued(db: &DatabaseConnection, run_id: &str) -> TaskOut
 /// that reaches for a sibling fails; one that does not, passes. The broker
 /// forwards to the platform port oxy-server installs at boot, installed here.
 pub(crate) fn point_airhouse_nowhere() {
-    airhouse::install_platform_db(std::sync::Arc::new(oxy_platform::ProcessPlatformDb));
+    oxy_platform::ProcessPlatformDb::install();
     // SAFETY: nextest runs each test in its own process.
     unsafe {
         std::env::set_var("AIRHOUSE_BASE_URL", "http://127.0.0.1:9");

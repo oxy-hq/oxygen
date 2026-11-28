@@ -20,8 +20,8 @@
 
 use std::sync::Arc;
 
+use crate::envelope;
 use chrono::Utc;
-use oxy_platform::secrets::envelope;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter,
 };

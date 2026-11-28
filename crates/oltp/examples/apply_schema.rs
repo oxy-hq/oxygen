@@ -22,9 +22,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .cloned()
         .unwrap_or_else(|| "luong@oxy.tech".to_string());
 
-    let url = std::env::var("OXY_DATABASE_URL")
-        .map_err(|_| "OXY_DATABASE_URL must point at Oxy's control-plane Postgres")?;
-    let db = Database::connect(ConnectOptions::new(url)).await?;
+    let db = control_plane().await?;
 
     let user = entity::prelude::Users::find()
         .filter(entity::users::Column::Email.eq(email.clone()))
@@ -84,4 +82,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     Ok(())
+}
+
+/// Oxy's control-plane Postgres, with the platform port installed first: the
+/// owner password is sealed under the master key through it, and `oxy`
+/// installs it at boot.
+async fn control_plane() -> Result<sea_orm::DatabaseConnection, Box<dyn std::error::Error>> {
+    oxy_platform::ProcessPlatformDb::install();
+    let url = std::env::var("OXY_DATABASE_URL")
+        .map_err(|_| "OXY_DATABASE_URL must point at Oxy's control-plane Postgres")?;
+    Ok(Database::connect(ConnectOptions::new(url)).await?)
 }

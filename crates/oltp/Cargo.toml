@@ -8,7 +8,6 @@ edition.workspace = true
 authors.workspace = true
 
 [dependencies]
-oxy-platform = { workspace = true }
 oxy-shared = { workspace = true }
 entity = { workspace = true }
 sea-orm = { workspace = true }
@@ -42,6 +41,10 @@ axum = { workspace = true }
 # dev-dependency, so the shipped `oxy-oltp` graph stays free of `agentic-*` —
 # the platform-never-imports-agentic rule is about the library, not its tests.
 agentic-connector = { workspace = true, features = ["postgres"] }
+# Dev-only: the examples that seal or open a tenant credential install the
+# production platform port (`ProcessPlatformDb::install`), as `oxy` does at
+# boot. The library reaches it only through `entity::platform_db`.
+oxy-platform = { workspace = true }
 
 # One grouped integration binary, per the workspace rule: a new top-level
 # tests/*.rs adds a whole link to every full test run.

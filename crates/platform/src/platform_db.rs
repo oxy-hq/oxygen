@@ -14,6 +14,17 @@ use oxy_shared::errors::OxyError;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ProcessPlatformDb;
 
+impl ProcessPlatformDb {
+    /// Installs this as the process's platform port, the one Airhouse's and
+    /// OLTP's late-bound handles forward to
+    /// ([`entity::platform_db::install_platform_db`]). `oxy-server` calls it
+    /// at boot; a test binary that reaches either through the installed port
+    /// calls it too. The first install wins, so calling it again is harmless.
+    pub fn install() -> bool {
+        entity::platform_db::install_platform_db::<OxyError>(std::sync::Arc::new(Self))
+    }
+}
+
 impl PlatformDb for ProcessPlatformDb {
     type Error = OxyError;
 

@@ -82,7 +82,7 @@ fn set_test_encryption_key() {
 /// to the platform port `oxy-server` installs at boot; this binary has no
 /// `main`, so it installs the same one here.
 fn set_airhouse_env(server: &MockServer) {
-    airhouse::install_platform_db(std::sync::Arc::new(oxy_platform::ProcessPlatformDb));
+    oxy_platform::ProcessPlatformDb::install();
     unsafe {
         std::env::set_var("AIRHOUSE_BASE_URL", server.uri());
         std::env::set_var("AIRHOUSE_ADMIN_TOKEN", ADMIN_TOKEN);

@@ -53,6 +53,9 @@ utoipa-axum = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
+# The shared harness installs the platform port (`ProcessPlatformDb::install`)
+# per test database, as oxy-server does at boot.
+oxy-platform = { workspace = true }
 # No oxy-app, not even here: the route-role tests moved up to oxy-server
 # (decompose TR).
 tower = { workspace = true, features = ["util"] }

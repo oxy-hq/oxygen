@@ -45,6 +45,9 @@ uuid = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
+# The shared harness installs the platform port (`ProcessPlatformDb::install`)
+# per test database, as oxy-server does at boot.
+oxy-platform = { workspace = true }
 # The in-source DB tests' harness (`oxy_test_utils::db`) takes the runtime
 # migrator from here; nothing in `src/` needs it since `oxy airway` left.
 # `migration` is for the integration group's per-test harness below.

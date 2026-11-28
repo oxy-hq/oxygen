@@ -57,6 +57,7 @@ pub mod confinement_audit;
 pub mod connect;
 pub mod entity;
 pub mod env_branches;
+mod envelope;
 pub mod events;
 pub mod grant_audit;
 mod host;

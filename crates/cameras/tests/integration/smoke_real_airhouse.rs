@@ -81,7 +81,7 @@ fn provisioner(db: DatabaseConnection, client: AirhouseAdminClient) -> TenantPro
 /// Also installs the platform port the process-wide broker (`token_broker()`)
 /// forwards to, as `oxy-server` does at boot: this binary has no `main`.
 fn assert_env_set() {
-    airhouse::install_platform_db(std::sync::Arc::new(oxy_platform::ProcessPlatformDb));
+    oxy_platform::ProcessPlatformDb::install();
     let missing: Vec<&&str> = REQUIRED_ENV
         .iter()
         .filter(|v| std::env::var(v).is_err() || std::env::var(v).unwrap().is_empty())

@@ -14,7 +14,7 @@
 //! Callers hold a `workspace_id`; tenants are keyed by `org_id`. The hop goes
 //! through `workspaces.org_id`, which is a lookup rather than an inference.
 
-use oxy_platform::secrets::envelope;
+use crate::envelope;
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 use uuid::Uuid;
 

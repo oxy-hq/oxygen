@@ -37,6 +37,9 @@ uuid = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
+# The shared harness installs the platform port (`ProcessPlatformDb::install`)
+# per test database, as oxy-server does at boot.
+oxy-platform = { workspace = true }
 # The staff-scope cases (moved from oxy-app's `platform` group with the
 # handlers, admin split PR 7) reuse the shared per-test harness
 # (`#[path]`-included from crates/test-utils/harness), which clones a per-run

@@ -45,6 +45,9 @@ uuid = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
+# The shared harness installs the platform port (`ProcessPlatformDb::install`)
+# per test database, as oxy-server does at boot.
+oxy-platform = { workspace = true }
 # The demo seed (`oxy_server::dev::seed`, up from oxy-app in decompose SD) that
 # `tests/integration/tenant_secrets.rs` builds its org from; it is compiled only
 # with oxy-server's `dev-tools`. A dev-dependency cycle Cargo allows.

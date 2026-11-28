@@ -42,6 +42,9 @@ uuid = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
+# The shared harness installs the platform port (`ProcessPlatformDb::install`)
+# per test database, as oxy-server does at boot.
+oxy-platform = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 serde_yaml = { workspace = true }
 # Two harnesses: the in-source DB tests' (`oxy_test_utils::db`, the central and

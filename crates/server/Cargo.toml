@@ -146,8 +146,8 @@ agentic-pipeline = { workspace = true }
 # tenant (`src/dev/seed/seed_airhouse.rs`; oxy-app's until decompose SD).
 airhouse = { workspace = true, features = ["connector", "sql-rules", "preview-sql", "import"] }
 # `cli::commands::prepare` installs `ProcessPlatformDb` as the platform port airhouse's broker
-# and provisioner forward to (`airhouse::install_platform_db`), and the platform port every
-# `oxy_auth::ports::AuthPlatform` is built on.
+# and provisioner, and oltp's sealed credentials, forward to (`ProcessPlatformDb::install`),
+# and the platform port every `oxy_auth::ports::AuthPlatform` is built on.
 oxy-platform = { workspace = true }
 axum-server = { workspace = true }
 clap = { workspace = true, features = ["derive", "env"] }

@@ -38,8 +38,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let email = arg_value(&args, "--email").unwrap_or_else(|| "luong@oxy.tech".to_string());
     let reset = args.iter().any(|a| a == "--reset");
 
-    let control_url = std::env::var("OXY_DATABASE_URL")
-        .map_err(|_| "OXY_DATABASE_URL must point at Oxy's control-plane Postgres")?;
+    let control_url = control_plane_url()?;
     // Tenant databases can live on a different cluster than the control plane —
     // and should, so a demo can't scribble on Oxy's own database.
     let admin_url = std::env::var("OXY_OLTP_ADMIN_URL").unwrap_or_else(|_| control_url.clone());
@@ -156,4 +155,13 @@ fn host_of(dsn: &str) -> String {
         .map(|h| h.split('/').next().unwrap_or(h))
         .map(|s| s.split('?').next().unwrap_or(s).to_string())
         .unwrap_or_else(|| "localhost:5432".to_string())
+}
+
+/// Oxy's control-plane URL, with the platform port installed first: tenant
+/// passwords are sealed under the master key through it, and `oxy` installs
+/// it at boot.
+fn control_plane_url() -> Result<String, &'static str> {
+    oxy_platform::ProcessPlatformDb::install();
+    std::env::var("OXY_DATABASE_URL")
+        .map_err(|_| "OXY_DATABASE_URL must point at Oxy's control-plane Postgres")
 }

@@ -503,7 +503,7 @@ pub fn owner_dsn(tenant: &oltp_tenants::Model) -> Result<String, MigrateError> {
             tenant.org_id
         ))
     })?;
-    let bytes = oxy_platform::secrets::envelope::open(sealed)
+    let bytes = crate::envelope::open(sealed)
         .map_err(|e| MigrateError::Owner(format!("unseal owner password: {e}")))?;
     let password = String::from_utf8(bytes)
         .map_err(|e| MigrateError::Owner(format!("owner password: {e}")))?;

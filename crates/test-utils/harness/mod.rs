@@ -227,12 +227,21 @@ fn assert_process_per_test() {
     );
 }
 
+/// Installs the platform port Airhouse and OLTP reach the platform database
+/// and master key through, as `oxy-server` does at boot: these binaries have
+/// no `main`, and a test that seals or opens a credential needs it. The first
+/// install wins, so every per-test database asking again is harmless.
+fn install_platform_port() {
+    oxy_platform::ProcessPlatformDb::install();
+}
+
 /// A fresh, migrated database of its own, plus the URL that reaches it.
 ///
 /// Prefer this over hand-rolling `CREATE DATABASE` + `Migrator::up`: those cost
 /// the whole migration chain per test, and this clones a per-run template.
 pub async fn fresh_db(schema: Schema) -> (DatabaseConnection, String) {
     assert_process_per_test();
+    install_platform_port();
 
     let admin_url = admin_url().await;
     // The run tag has to be IN the name: `drop_stale_databases` decides what
@@ -267,6 +276,7 @@ pub async fn fresh_db(schema: Schema) -> (DatabaseConnection, String) {
 /// which is two orders of magnitude cheaper.
 pub async fn empty_db() -> (DatabaseConnection, String) {
     assert_process_per_test();
+    install_platform_port();
 
     let admin_url = admin_url().await;
     // Same naming rule as `fresh_db`: the run tag has to be in the name or
