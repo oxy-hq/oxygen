@@ -30,7 +30,7 @@ jobs:
     if: |
       (github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release/')) &&
       github.repository == 'oxy-hq/oxygen-internal'
-    runs-on: ubicloud-standard-2-arm
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'runs-on/fleet=arm64-2x/env=ci' || 'ubuntu-latest' }}
     # Trivy fs scan of the repo; a stuck DB download shouldn't bill > 20m.
     timeout-minutes: 20
     steps:
@@ -63,7 +63,7 @@ jobs:
     if: |
       (github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release/')) &&
       github.repository == 'oxy-hq/oxygen-internal'
-    runs-on: ubicloud-standard-2-arm
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'runs-on/fleet=arm64-2x/env=ci' || 'ubuntu-latest' }}
     # Secret scan of the tree; bounded well under 15m.
     timeout-minutes: 15
     steps:

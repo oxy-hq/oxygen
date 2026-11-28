@@ -25,8 +25,7 @@ jobs:
     if: >-
       github.event_name == 'push' && github.ref == 'refs/heads/main' &&
       !startsWith(github.event.head_commit.message, 'chore: release')
-    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubuntu-slim' ||
-      'ubuntu-latest' }}
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubuntu-slim' || 'ubuntu-latest' }}
     timeout-minutes: 5
     permissions:
       pull-requests: read
@@ -57,8 +56,7 @@ jobs:
       !startsWith(github.event.head_commit.message, 'chore: release') &&
       (!(github.event_name == 'push' && github.ref == 'refs/heads/main') ||
         needs.release-pr-open.outputs.open == 'true')
-    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubuntu-slim' ||
-      'ubuntu-latest' }}
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubuntu-slim' || 'ubuntu-latest' }}
     timeout-minutes: 20
     concurrency:
       group: release-pr-${{ github.ref }}
@@ -114,8 +112,7 @@ jobs:
     if: >-
       startsWith(github.event.head_commit.message, 'chore: release') &&
       !startsWith(github.event.head_commit.message, 'chore: release @')
-    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubuntu-slim' ||
-      'ubuntu-latest' }}
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubuntu-slim' || 'ubuntu-latest' }}
     timeout-minutes: 20
     concurrency:
       group: release-${{ github.ref }}
@@ -177,8 +174,7 @@ jobs:
   release-public:
     needs: [ release ]
     if: needs.release.outputs.releases_created == 'true'
-    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubuntu-slim' ||
-      'ubuntu-latest' }}
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubuntu-slim' || 'ubuntu-latest' }}
     timeout-minutes: 20
     permissions:
       contents: read

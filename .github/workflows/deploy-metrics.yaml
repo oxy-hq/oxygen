@@ -48,7 +48,7 @@ jobs:
   report:
     name: Roll up deploy metrics
     if: github.repository == 'oxy-hq/oxygen-internal'
-    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubicloud-standard-2-arm' || 'ubuntu-latest' }}
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'runs-on/fleet=arm64-2x/env=ci' || 'ubuntu-latest' }}
     # ~500 API reads (the staging history is most of them), about two minutes;
     # 15m is hang insurance.
     timeout-minutes: 15

@@ -45,7 +45,7 @@ jobs:
     name: Publish oxy-hq/skills
     # main only, dispatch included: a run from a branch would publish that branch's skills.
     if: github.repository == 'oxy-hq/oxygen-internal' && github.ref == 'refs/heads/main'
-    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubicloud-standard-2-arm' || 'ubuntu-latest' }}
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

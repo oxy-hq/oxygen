@@ -37,7 +37,7 @@ jobs:
     name: Android app (build, unit tests, lint)
     if: github.repository == 'oxy-hq/oxygen-internal'
     # x64: the Android build tools (aapt2) ship for x86-64 Linux only.
-    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubicloud-standard-2' || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

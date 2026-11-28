@@ -76,9 +76,9 @@ jobs:
     # `needs` skips its dependents — but `agentic-tests` repeats it so neither
     # job's guard depends on the other still being wired this way.
     if: github.repository == 'oxy-hq/oxygen-internal'
-    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubicloud-standard-2-arm' || 'ubuntu-latest' }}
-    # Just emits the bucket matrix JSON; sub-second work, so the smallest Ubicloud
-    # runner (GitHub-hosted minutes draw on the org's Actions budget).
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'runs-on/fleet=arm64-2x/env=ci' || 'ubuntu-latest' }}
+    # Just emits the bucket matrix JSON; sub-second work, so the smallest fleet
+    # shape (GitHub-hosted minutes draw on the org's Actions budget).
     timeout-minutes: 10
     outputs:
       flows: ${{ steps.resolve.outputs.flows }}
@@ -223,10 +223,13 @@ jobs:
     # without loosening the dependency.
     if: github.repository == 'oxy-hq/oxygen-internal'
     # Must match the binary's architecture (cargo-check-and-test builds
-    # `oxy-binary-ci` on `ubicloud-standard-4-arm` in this repo).
+    # `oxy-binary-ci` on GitHub-hosted `ubuntu-24.04-arm` in this repo).
     # Running on x86_64 ubuntu-latest produced an ENOEXEC fallback to
     # /bin/sh that surfaced as "Syntax error: Unterminated quoted string".
-    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubicloud-standard-4-arm' || 'ubuntu-latest' }}
+    runs-on:
+      ${{ github.repository != 'oxy-hq/oxygen-internal' && 'ubuntu-latest' ||
+      (vars.CI_WEB_RUNNER_4X != '' && vars.CI_WEB_RUNNER_4X_SPOT) ||
+      vars.CI_WEB_RUNNER_4X || 'ubuntu-24.04-arm' }}
     # `continue-on-error: true` while we calibrate cost + reliability on
     # the matrix. Flip to false once the suite has ≥3 consecutive green
     # main-branch runs.

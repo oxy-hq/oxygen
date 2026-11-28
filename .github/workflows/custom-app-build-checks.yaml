@@ -150,7 +150,7 @@ jobs:
     # oxygen-internal only: the environments and their secrets exist only here,
     # so a copy of this file anywhere else (the public mirror) must not run.
     if: github.repository == 'oxy-hq/oxygen-internal'
-    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'warp-ubuntu-latest-arm64-2x' || 'ubuntu-latest' }}
+    runs-on: ubuntu-24.04-arm
     # The whole job: setup, then a command whose own waits end inside ten
     # minutes. On staging: six for the check functions, with the page loads
     # alongside (two and a half for the root, then at most six and a half for

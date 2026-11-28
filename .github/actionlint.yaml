@@ -1,25 +1,29 @@
 # Declares the self-hosted / third-party runner labels this repo uses, so
-# actionlint stops reporting every one of them as "unknown" and starts
-# catching the one mistake that actually matters here.
+# actionlint stops reporting every one of them as "unknown".
 #
 # Before this file there were 46 `runner-label` findings, one per label
-# occurrence, which is noise that hides signal: a MIS-TYPED runner label does
-# not fail: the job sits queued until its timeout, because no runner ever
-# matches it. That is the worst failure mode in this repo's CI config and it
-# was the only one actionlint could not help with, because every label looked
-# equally unknown to it.
+# occurrence, which is noise that hides signal.
 #
-# The RunsOn fleet labels are not here on purpose. Those come from repository
-# variables (`CI_RUST_RUNNER_4X` and friends), so the workflow contains an
-# expression rather than a literal and actionlint never sees a label to check.
-# Keep it that way: the variable is the rollback lever.
+# READ THIS BEFORE TRUSTING THE FILE: actionlint is **not run in CI**. No
+# workflow, justfile recipe or hook invokes it; outside internal-docs this file
+# is the only one in the repo that contains the word. It has only ever been run
+# by hand (#4481). So nothing here fails a build.
 #
-# Ubicloud's sizes are 2, 4, 8, 16 and 30 vCPU, x64 and `-arm`. Only the ones
-# this repo uses are listed, so adding a new size is a deliberate edit here
-# rather than a silent new label.
+# It also could not catch this repo's actual runner-label mistake even when run
+# by hand. Nearly every `runs-on` is written as
+# `${{ github.repository == 'oxy-hq/oxygen-internal' && '<label>' || 'ubuntu-latest' }}`,
+# and actionlint does not check labels inside a `${{ }}` expression. Tested:
+# a bare `runs-on: ubicloud-standard-2-arm` is reported, the same label inside
+# that gate expression is not. #4250's stale `warp-ubuntu-latest-arm64-2x` was
+# inside the expression, so a manual run would have passed it.
+#
+# `labels:` is empty because every label this repo once declared belongs to a
+# vendor it has left, and a declaration for a label no runner answers to can
+# only ever hide a mistake. Add one here only when a runner that answers to it
+# exists. The RunsOn fleet labels are not here and should not be: the 4x/8x
+# shapes come from repository variables, and the small shapes are strings
+# inside the gate expression, so actionlint never sees either as a label.
+#
+# To actually catch a stale label, grep. See internal-docs/ci-runners.md.
 self-hosted-runner:
-  labels:
-    - ubicloud-standard-2
-    - ubicloud-standard-2-arm
-    - ubicloud-standard-4-arm
-    - ubicloud-standard-8-arm
+  labels: []

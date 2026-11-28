@@ -14,8 +14,7 @@ defaults:
 
 jobs:
   clear-cache:
-    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubuntu-slim' ||
-      'ubuntu-latest' }}
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'runs-on/fleet=arm64-2x/env=ci' || 'ubuntu-latest' }}
     timeout-minutes: 10
     steps:
       - name: Clear cache

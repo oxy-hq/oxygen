@@ -77,118 +77,48 @@ defaults:
   run:
     shell: bash
 
-# WHICH RUNNER A JOB GETS, and why each provider is picked:
-# internal-docs/ci-runners.md. The short version is that the three are
-# scarce in different ways -- the fleet in licence launches, Ubicloud in
-# memory and cache speed, GitHub-hosted in nothing but it must stay
-# independent of both -- so "fastest" is the wrong question. Read it
-# before adding or moving a `runs-on`.
+# WHICH RUNNER A JOB GETS: internal-docs/ci-runners.md, which has the measured
+# numbers, the licence arithmetic and the one open security finding. The short
+# version, because the long version does not belong in four places:
 #
-# Runner gate for the four heaviest Rust jobs.
+#   Rust compiles      CI_RUST_RUNNER_4X / _8X        (+ _SPOT twins)
+#   The seven web jobs CI_WEB_RUNNER_4X               (+ _SPOT twin; tmpfs)
+#   Everything else    runs-on/fleet=arm64-2x/env=ci  named inline
+#   Two exceptions     GitHub-hosted: see below
 #
-# These four are 4,206 of the 7,221 WarpBuild minutes a day -- $920 of the
-# $1,279 monthly bill -- so they are the only jobs where a cheaper runner is
-# worth any complexity. CI_RUST_RUNNER_4X (clippy, build oxy, the test
-# partitions) and CI_RUST_RUNNER_8X (the archive) each hold a plain `runs-on`
-# label, used verbatim; both are set to RunsOn Fleet labels today. Unset one
-# and that size returns to Ubicloud, which is the rollback, with no deploy.
+# Unset one of the four variables and that size falls back to GitHub-hosted
+# `ubuntu-24.04-arm` -- the rollback, with no deploy, and arm64 because every
+# cache key and the nextest archive are architecture-keyed.
 #
-# Not in scope: `cargo-test` ("...(test)") is the required status branch
-# protection binds -- it only reads the others' results and is GitHub-hosted.
-# Careful: its name shares a prefix with `cargo-clippy`, which is the job that
-# actually costs 4x minutes, so read the job key, not the display name.
+# SPOT ON EVERY REF. The `_SPOT` twins are preferred everywhere, and the spot
+# branch requires its own on-demand variable to be set, which keeps it in step
+# with the cache-transport gate further down (that gate reads the on-demand
+# variables to decide whether `actions/cache` is Magic Cache). Measured: `Build
+# oxy` medians 4.52m on BOTH lifecycles, so spot costs nothing in speed.
 #
-# The swap top-up these jobs carry was sized for WarpBuild's 15.3 GiB runners
-# and matters MORE now that the fallback is Ubicloud: `ubicloud-standard-4-arm`
-# is 12 GB and `-8-arm` is 24 GB, against WarpBuild's 16 and 32. So a job that
-# ran unswapped on Warp may swap on the fallback;
-# on a 32 GiB instance it is dead weight, not a hazard.
+# The accepted risk, stated once: `retry=when-interrupted` drives GitHub's
+# rerun-failed-jobs flow, which cannot tell a reclaimed runner from a failed
+# test. Zero interruptions observed is not a zero rate. A job that failed then
+# passed on `Re-run failed jobs` with no code change is EITHER a reclaimed
+# runner OR a flaky test, and a flake is a bug here -- check `run_attempt` and
+# the runner's log before believing the green.
 #
-# These four also run on a ci.yaml edit, through the `oxy-ci` filter in
+# THE TWO JOBS THAT STAY GITHUB-HOSTED, and not for speed: `cargo-test`
+# ("...(test)") is the required status check branch protection binds -- it only
+# reads the other jobs' results, and on the fleet a capacity problem there
+# would block every merge in the repo rather than fail one job. `changesets`
+# gates every other job, so a fresh-VM boot sits on every run's critical path
+# and a failure to start stops everything. Careful: `cargo-test` shares a name
+# prefix with `cargo-clippy`, which is the job that actually costs 4x minutes,
+# so read the job key, not the display name.
+#
+# The four Rust jobs also run on a ci.yaml edit, through the `oxy-ci` filter in
 # changesets.yaml, so a PR rewriting one of their `runs-on` lines has to run
 # it. Each job's own comment still owns why it is that size.
-
-# Lifecycle, on top of size: PULL REQUESTS ON-DEMAND, MAIN ON SPOT.
 #
-# CI_RUST_RUNNER_4X_SPOT and _8X_SPOT name the fleet's spot twins, and main
-# prefers them. The reasoning is risk rather than price. A PR run is what a
-# person is waiting on and what a reviewer reads, so an interruption there
-# costs attention -- and RunsOn's spot default, `retry=when-interrupted`,
-# drives GitHub's rerun-failed-jobs flow, which cannot tell a reclaimed runner
-# from a failed test. A main run is the final check after review, where a
-# rerun is cheap and shows up as attempt > 1 in the UI. So that masking risk
-# is accepted on main and paid off on pull requests. A green main straight
-# after a red one is worth checking the attempt count on.
-#
-# The spot branch requires its own on-demand variable to be set as well. That
-# is deliberate: unset the on-demand variable and the whole size returns to
-# Ubicloud, spot twin or not, so the rollback stays one variable per size.
-# It also keeps this in step with the cache-transport gate further down, which
-# reads the on-demand variables to decide whether `actions/cache` is Magic
-# Cache -- if `_SPOT` could stand alone, a main run could be on the fleet
-# while that gate thought it was not.
-#
-# Unset both _SPOT variables and everything is on-demand, which is what shipped
-# before this: merging the gate changes nothing on its own.
-#
-# What it saves, re-measured 2026-11-27 from the runner's own cost line over
-# five main runs and four pull-request runs: the seven Rust jobs are $0.0713 a
-# run on spot against $0.1721 on-demand -- so spot is 2.4x cheaper, not the
-# 4.3x the first estimate implied, because on-demand came in at $0.17 rather
-# than the $0.24 guessed. Main carried 45 of 26 November's 185 runs, a quarter
-# of the traffic, which at $0.101 saved a run is about $136/month -- above the
-# $70-95 first projected, since there is more main traffic than the last-100
-# sample showed. Pull requests are still where the bill is.
-#
-# Spot costs nothing in speed, which was the open risk: `Build oxy` medians
-# 4.52m on both lifecycles (n=141 on-demand, n=59 spot), and no sampled main
-# run was interrupted.
-
-# Runner gate for the light jobs, same shape as the one above.
-#
-# CI_SLIM_RUNNER holds a plain `runs-on` label, used verbatim; unset it and
-# these jobs return to `ubuntu-slim`, which is the rollback with no deploy.
-# Until it is set this gate changes nothing, so merging this is a no-op.
-#
-# `ubuntu-slim` is GITHUB-hosted, not WarpBuild -- the live runner reports
-# `group=GitHub Actions` -- so this trades GitHub's billed minutes for the
-# fleet's `arm64-2x` shape, which already exists for exactly these jobs.
-#
-# TURNED OFF ON PURPOSE, 2026-11-26: the variable is unset and these six jobs
-# are on `ubuntu-slim`. Read the next three paragraphs before setting it, and
-# set it only if the licence arithmetic has changed.
-#
-# It was measured on, and the SPEED was better than this comment first
-# predicted: the boot is ~18s rather than the ~40s the fleet's own notes
-# assume, and both jobs that ran came out FASTER end to end than on
-# `ubuntu-slim` -- code-metrics 18s+21s=39s against 47s, cargo-fmt
-# 19s+24s=43s against ~60s. So this is not off because it was slow.
-#
-# It is off because of the LICENCE, which meters runner LAUNCHES, not minutes:
-# one launch per job, and RunsOn's Starter tier is under 50k jobs/month. The
-# four Rust jobs alone already measured ~832 launches/day, about 25k/month or
-# half of Starter. These six add roughly 17k/month on top -- another third of
-# the tier -- to save about eight seconds a job. The Rust jobs spend a
-# comparable share of the allowance to save two to five MINUTES each, so per
-# launch they are 20-40x the value. When the allowance is the scarce thing,
-# short jobs are the wrong place to spend it.
-#
-# Nothing is enforced and there is a two-month grace, so this was not urgent;
-# it is simply the cheapest headroom available, and unsetting a variable costs
-# nothing. Worth revisiting if the tier changes, if the per-job boot drops
-# further, or if the overall launch rate falls.
-#
-# The original trade, still true: a fleet runner is a fresh EC2 boot against an
-# already-warm GitHub-hosted runner, and the measured durations of the six jobs
-# gated here are typecheck-ci-scripts 3m39s, sdk-typecheck 2m13s, fmt-web
-# 2m11s, cargo-fmt ~1m, code-metrics 47s, canary-zoo short. `runs-on` is per
-# job here, so any one of them can move independently.
-#
-# NOT gated: `cargo-test` ("...(test)"), which only reads the other jobs'
-# results and is the required status check branch protection binds. On the
-# fleet, a capacity problem there would block every merge in the repo rather
-# than fail one job, so it stays GitHub-hosted -- the same reasoning that
-# keeps it out of the Rust gate above.
+# The swap top-up those jobs carry was sized for WarpBuild's 15.3 GiB runners
+# and no longer has a vendor number behind it. Leave it: dead weight on the
+# fleet's 16 and 32 GiB instances, and insurance on anything smaller.
 
 jobs:
   # Every other job needs this one, so the repository gate here keeps the public
@@ -204,6 +134,42 @@ jobs:
     uses: ./.github/workflows/changesets.yaml
     name: Changesets
 
+  # A `warp-*` or `ubicloud-*` label finds no runner and does NOT fail: the job
+  # sits queued until its timeout. That is this repo's worst CI-config failure
+  # mode and it has happened -- #4250 re-added `warp-ubuntu-latest-arm64-2x`
+  # from a branch cut before the removal sweep, live for a day.
+  #
+  # NO `needs`, deliberately. This started as a step inside `changesets`, where
+  # a failure skipped every job that needs it -- and a skipped job satisfies a
+  # required check (see the comment on `custom-app-canary` below), so a dead
+  # label would have switched CI off for the whole repo while reading green.
+  # Standing alone, it can skip nothing; `cargo-test` reads its result so the
+  # required status goes red.
+  #
+  # It is a grep, not actionlint. actionlint is not run in CI at all, and it
+  # does not check a label inside a `${{ }}` expression, which is where almost
+  # every label here sits -- including #4250's. Measured both ways; the reasons
+  # are in internal-docs/ci-runners.md. Comment lines are excluded, so both
+  # vendors can still be discussed as history. The trailing `[a-z0-9]` stops
+  # the pattern matching itself: a real label continues with a word character.
+  runner-labels:
+    name: No dead runner labels
+    if: github.repository == 'oxy-hq/oxygen-internal'
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubuntu-slim' || 'ubuntu-latest' }}
+    # Checkout plus one grep.
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: No dead runner labels
+        run: |
+          if dead=$(grep -rn --include='*.yaml' --include='*.yml' \
+              -E '(warp-|ubicloud-)[a-z0-9]' .github/workflows .github/actions \
+              | grep -vE ':[0-9]+:[[:space:]]*#'); then
+            echo "::error::A retired runner label is live. The job would queue until timeout."
+            echo "$dead"
+            exit 1
+          fi
+
   fmt-web:
     name: Format web
     needs: [changesets]
@@ -218,9 +184,7 @@ jobs:
       inputs.agentic_only != true &&
       (needs.changesets.outputs.web-app == 'true' ||
        needs.changesets.outputs.ci-scripts == 'true')
-    runs-on:
-      ${{ github.repository != 'oxy-hq/oxygen-internal' && 'ubuntu-latest' ||
-      vars.CI_SLIM_RUNNER || 'ubuntu-slim' }}
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'runs-on/fleet=arm64-2x/env=ci' || 'ubuntu-latest' }}
     # Install + lint-staged on the diff runs in ~2m warm; 15m covers a cold
     # pnpm store with generous headroom.
     timeout-minutes: 15
@@ -256,7 +220,10 @@ jobs:
       group: build-web-${{ github.event.pull_request.number || (github.ref == 'refs/heads/main' && github.sha) || github.ref }}
       cancel-in-progress: true
     if: inputs.agentic_only != true && needs.changesets.outputs.web-app == 'true'
-    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubicloud-standard-4-arm' || 'ubuntu-latest' }}
+    runs-on:
+      ${{ github.repository != 'oxy-hq/oxygen-internal' && 'ubuntu-latest' ||
+      (vars.CI_WEB_RUNNER_4X != '' && vars.CI_WEB_RUNNER_4X_SPOT) ||
+      vars.CI_WEB_RUNNER_4X || 'ubuntu-24.04-arm' }}
     # `pnpm build` (turbo) runs in well under 10m; 25m absorbs a cold cache /
     # full TS rebuild while still bounding a hung Vite/tsc process.
     timeout-minutes: 25
@@ -338,9 +305,12 @@ jobs:
       inputs.agentic_only != true &&
       (needs.changesets.outputs.web-app == 'true' ||
        needs.changesets.outputs.ci-counter == 'true')
-    # Ubicloud arm64, like every other job in this repo that runs tests — the lint
-    # and format jobs stay on `ubuntu-slim` because they are not tests.
-    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubicloud-standard-4-arm' || 'ubuntu-latest' }}
+    # The fleet's web shape, like every other job in this repo that runs tests —
+    # the lint and format jobs stay on `ubuntu-slim` because they are not tests.
+    runs-on:
+      ${{ github.repository != 'oxy-hq/oxygen-internal' && 'ubuntu-latest' ||
+      (vars.CI_WEB_RUNNER_4X != '' && vars.CI_WEB_RUNNER_4X_SPOT) ||
+      vars.CI_WEB_RUNNER_4X || 'ubuntu-24.04-arm' }}
     # The Vitest unit suite runs in ~1-2m warm; 15m covers a cold pnpm store.
     timeout-minutes: 15
     steps:
@@ -464,9 +434,7 @@ jobs:
       inputs.agentic_only != true &&
       (needs.changesets.outputs.sdk == 'true' ||
        needs.changesets.outputs.ci-counter == 'true')
-    runs-on:
-      ${{ github.repository != 'oxy-hq/oxygen-internal' && 'ubuntu-latest' ||
-      vars.CI_SLIM_RUNNER || 'ubuntu-slim' }}
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'runs-on/fleet=arm64-2x/env=ci' || 'ubuntu-latest' }}
     # One tsc over ~60 files; 15m covers a cold pnpm store.
     timeout-minutes: 15
     steps:
@@ -564,9 +532,12 @@ jobs:
       group: sdk-${{ github.event.pull_request.number || (github.ref == 'refs/heads/main' && github.sha) || github.ref }}
       cancel-in-progress: true
     if: inputs.agentic_only != true && needs.changesets.outputs.sdk == 'true'
-    # Ubicloud arm64 like the other jobs that run tests. `sdk/cli`'s suite spawns
-    # the built binary, so it needs a real runner rather than ubuntu-slim.
-    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubicloud-standard-4-arm' || 'ubuntu-latest' }}
+    # The fleet's web shape like the other jobs that run tests. `sdk/cli`'s suite
+    # spawns the built binary, so it needs a real runner rather than ubuntu-slim.
+    runs-on:
+      ${{ github.repository != 'oxy-hq/oxygen-internal' && 'ubuntu-latest' ||
+      (vars.CI_WEB_RUNNER_4X != '' && vars.CI_WEB_RUNNER_4X_SPOT) ||
+      vars.CI_WEB_RUNNER_4X || 'ubuntu-24.04-arm' }}
     # ~2m warm; 15m covers a cold pnpm store.
     timeout-minutes: 15
     env:
@@ -715,9 +686,12 @@ jobs:
     if: |
       inputs.agentic_only != true &&
       (needs.changesets.outputs.web-app == 'true' || needs.changesets.outputs.sdk == 'true')
-    # Ubicloud arm64 like the other test jobs: this one does four real pnpm
-    # installs, which is the slow part.
-    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubicloud-standard-4-arm' || 'ubuntu-latest' }}
+    # The fleet's web shape like the other test jobs: this one does four real
+    # pnpm installs, which is the slow part.
+    runs-on:
+      ${{ github.repository != 'oxy-hq/oxygen-internal' && 'ubuntu-latest' ||
+      (vars.CI_WEB_RUNNER_4X != '' && vars.CI_WEB_RUNNER_4X_SPOT) ||
+      vars.CI_WEB_RUNNER_4X || 'ubuntu-24.04-arm' }}
     # Four scaffolds x (install + tsc + vite build + vitest) is ~4-6m warm; 25m covers a
     # cold pnpm store.
     timeout-minutes: 25
@@ -754,9 +728,7 @@ jobs:
     if: |
       inputs.agentic_only != true &&
       needs.changesets.outputs.ci-scripts == 'true'
-    runs-on:
-      ${{ github.repository != 'oxy-hq/oxygen-internal' && 'ubuntu-latest' ||
-      vars.CI_SLIM_RUNNER || 'ubuntu-slim' }}
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'runs-on/fleet=arm64-2x/env=ci' || 'ubuntu-latest' }}
     # Install plus one tsc over a handful of files; 15m is hang insurance.
     timeout-minutes: 15
     steps:
@@ -830,9 +802,7 @@ jobs:
     if: |
       inputs.agentic_only != true &&
       needs.changesets.outputs.code-metrics == 'true'
-    runs-on:
-      ${{ github.repository != 'oxy-hq/oxygen-internal' && 'ubuntu-latest' ||
-      vars.CI_SLIM_RUNNER || 'ubuntu-slim' }}
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'runs-on/fleet=arm64-2x/env=ci' || 'ubuntu-latest' }}
     # A 16 MB download and a ~3s scan. 10m is hang insurance.
     timeout-minutes: 10
     steps:
@@ -943,9 +913,12 @@ jobs:
        needs.changesets.outputs.sdk == 'true' ||
        needs.changesets.outputs.ci-scripts == 'true' ||
        needs.changesets.outputs.lint-bugs == 'true')
-    # Ubicloud arm64 rather than `ubuntu-slim`: the type-aware half builds a full
-    # TypeScript program for web-app, which wants more than one core.
-    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubicloud-standard-4-arm' || 'ubuntu-latest' }}
+    # The fleet's web shape rather than `ubuntu-slim`: the type-aware half builds
+    # a full TypeScript program for web-app, which wants more than one core.
+    runs-on:
+      ${{ github.repository != 'oxy-hq/oxygen-internal' && 'ubuntu-latest' ||
+      (vars.CI_WEB_RUNNER_4X != '' && vars.CI_WEB_RUNNER_4X_SPOT) ||
+      vars.CI_WEB_RUNNER_4X || 'ubuntu-24.04-arm' }}
     # Both linters finish in seconds; 15m covers a cold pnpm store.
     timeout-minutes: 15
     steps:
@@ -1015,9 +988,7 @@ jobs:
         startsWith(github.event.head_commit.message, 'chore: release')) &&
       github.event.pull_request.draft != true &&
       (github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release/'))
-    runs-on:
-      ${{ github.repository != 'oxy-hq/oxygen-internal' && 'ubuntu-latest' ||
-      vars.CI_SLIM_RUNNER || 'ubuntu-slim' }}
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'runs-on/fleet=arm64-2x/env=ci' || 'ubuntu-latest' }}
     # rustfmt --check on the whole workspace is seconds; 10m is pure hang insurance.
     timeout-minutes: 10
     steps:
@@ -1057,7 +1028,7 @@ jobs:
         needs.changesets.outputs.oxy == 'true' ||
         needs.changesets.outputs.crate-layering == 'true'
       )
-    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubuntu-slim' || 'ubuntu-latest' }}
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'runs-on/fleet=arm64-2x/env=ci' || 'ubuntu-latest' }}
     # `cargo metadata --no-deps` and two Python scripts: seconds. 10m is hang insurance.
     timeout-minutes: 10
     steps:
@@ -1098,9 +1069,7 @@ jobs:
         startsWith(github.event.head_commit.message, 'chore: release')) &&
       github.event.pull_request.draft != true &&
       (github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release/'))
-    runs-on:
-      ${{ github.repository != 'oxy-hq/oxygen-internal' && 'ubuntu-latest' ||
-      vars.CI_SLIM_RUNNER || 'ubuntu-slim' }}
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'runs-on/fleet=arm64-2x/env=ci' || 'ubuntu-latest' }}
     # Two file comparisons and a JSON field read; 10m is pure hang insurance.
     timeout-minutes: 10
     steps:
@@ -1178,8 +1147,11 @@ jobs:
         startsWith(github.event.head_commit.message, 'chore: release')) &&
       github.event.pull_request.draft != true &&
       (github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release/'))
-    # Ubicloud arm64, like every other job in this repo that runs tests.
-    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubicloud-standard-4-arm' || 'ubuntu-latest' }}
+    # The fleet's web shape, like every other job in this repo that runs tests.
+    runs-on:
+      ${{ github.repository != 'oxy-hq/oxygen-internal' && 'ubuntu-latest' ||
+      (vars.CI_WEB_RUNNER_4X != '' && vars.CI_WEB_RUNNER_4X_SPOT) ||
+      vars.CI_WEB_RUNNER_4X || 'ubuntu-24.04-arm' }}
     # The canary's vitest cases and two tsc projects finish in seconds; 15m
     # covers a cold pnpm store.
     timeout-minutes: 15
@@ -1244,9 +1216,9 @@ jobs:
       )
     runs-on:
       ${{ github.repository != 'oxy-hq/oxygen-internal' && 'ubuntu-latest' ||
-      (github.ref == 'refs/heads/main' && vars.CI_RUST_RUNNER_4X != '' &&
-      vars.CI_RUST_RUNNER_4X_SPOT) || vars.CI_RUST_RUNNER_4X ||
-      'ubicloud-standard-4-arm' }}
+      (vars.CI_RUST_RUNNER_4X != '' && vars.CI_RUST_RUNNER_4X_SPOT) ||
+      vars.CI_RUST_RUNNER_4X ||
+      'ubuntu-24.04-arm' }}
     # Warm cache ~3m, a cold workspace clippy ~15m. 60m kills a true hang
     # within the hour (the 5h runaway that motivated these caps was here).
     timeout-minutes: 60
@@ -1359,9 +1331,9 @@ jobs:
     # Still arm64: agentic-tests and custom-app-canary run this binary on arm64.
     runs-on:
       ${{ github.repository != 'oxy-hq/oxygen-internal' && 'ubuntu-latest' ||
-      (github.ref == 'refs/heads/main' && vars.CI_RUST_RUNNER_4X != '' &&
-      vars.CI_RUST_RUNNER_4X_SPOT) || vars.CI_RUST_RUNNER_4X ||
-      'ubicloud-standard-4-arm' }}
+      (vars.CI_RUST_RUNNER_4X != '' && vars.CI_RUST_RUNNER_4X_SPOT) ||
+      vars.CI_RUST_RUNNER_4X ||
+      'ubuntu-24.04-arm' }}
     # A cold build; 45m kills a true hang.
     timeout-minutes: 45
     env:
@@ -1523,9 +1495,9 @@ jobs:
     # ~30 to 17 minutes for ~$0.05 a run; 16x was no faster than 8x.
     runs-on:
       ${{ github.repository != 'oxy-hq/oxygen-internal' && 'ubuntu-latest' ||
-      (github.ref == 'refs/heads/main' && vars.CI_RUST_RUNNER_8X != '' &&
-      vars.CI_RUST_RUNNER_8X_SPOT) || vars.CI_RUST_RUNNER_8X ||
-      'ubicloud-standard-8-arm' }}
+      (vars.CI_RUST_RUNNER_8X != '' && vars.CI_RUST_RUNNER_8X_SPOT) ||
+      vars.CI_RUST_RUNNER_8X ||
+      'ubuntu-24.04-arm' }}
     # A cold test compile; 60m kills a true hang within the hour.
     timeout-minutes: 60
     outputs:
@@ -1748,11 +1720,11 @@ jobs:
       # actions/cache is Magic Cache, this stack's own S3 bucket -- measured at
       # 935 MB/s saving and 1.3 GB/s restoring, which took the per-partition
       # transfer from 4m15s to 13s. Unsetting either variable is the documented
-      # rollback to Ubicloud, and there actions/cache is not Magic Cache,
-      # where a 2.5 GiB per-run entry would evict the cargo caches at lines
-      # 188-211 within about four runs. So the rollback has to switch transport
-      # with the runner, which makes the artifact path below the rollback path
-      # rather than dead code.
+      # rollback to GitHub-hosted, where actions/cache is GitHub's own cache
+      # service and a 2.5 GiB per-run entry would evict the cargo caches at
+      # lines 188-211 within about four runs. So the rollback has to switch
+      # transport with the runner, which makes the artifact path below the
+      # rollback path rather than dead code.
       #
       # Keyed on run_id: one producer, four consumers, nothing outside the run
       # wants it, and re-running just the failed partitions keeps the id so the
@@ -1780,8 +1752,8 @@ jobs:
           lookup-only: true
           fail-on-cache-miss: true
 
-      # The rollback path: Ubicloud or GitHub-hosted, where the 10 GB cache
-      # budget makes a 2.5 GiB entry a hazard. Slow (~11 MB/s) but bounded,
+      # The rollback path: GitHub-hosted, where the 10 GB cache budget makes a
+      # 2.5 GiB entry a hazard. Slow (~11 MB/s) but bounded,
       # and `retention-days: 1` keeps it out of the cache budget entirely.
       - name: Upload test archive
         if: steps.archive.outputs.run-tests == 'true' && (vars.CI_RUST_RUNNER_4X == '' || vars.CI_RUST_RUNNER_8X == '')
@@ -1810,9 +1782,9 @@ jobs:
         partition: ${{ fromJSON(needs.cargo-test-archive.outputs.partitions) }}
     runs-on:
       ${{ github.repository != 'oxy-hq/oxygen-internal' && 'ubuntu-latest' ||
-      (github.ref == 'refs/heads/main' && vars.CI_RUST_RUNNER_4X != '' &&
-      vars.CI_RUST_RUNNER_4X_SPOT) || vars.CI_RUST_RUNNER_4X ||
-      'ubicloud-standard-4-arm' }}
+      (vars.CI_RUST_RUNNER_4X != '' && vars.CI_RUST_RUNNER_4X_SPOT) ||
+      vars.CI_RUST_RUNNER_4X ||
+      'ubuntu-24.04-arm' }}
     # A quarter of a ~16-minute suite plus setup; 30m kills a hang.
     timeout-minutes: 30
     env:
@@ -2119,11 +2091,16 @@ jobs:
   # layering result should land on this status, not only on its own.
   cargo-test:
     name: Format cargo, check & test (test)
-    needs: [cargo-check-and-test, cargo-test-archive, cargo-test-partition, crate-layering]
+    needs: [cargo-check-and-test, cargo-test-archive, cargo-test-partition, crate-layering, runner-labels]
+    # `runner-labels` is in `needs` for its result only, and the last clause is
+    # what makes it bite: it has no path filter, so on a PR that touches only a
+    # workflow file the Rust jobs are skipped and this status would otherwise be
+    # satisfied by skip. A dead label makes it run, and fail.
     if: |
       !cancelled() && (
         needs.cargo-check-and-test.result != 'skipped' ||
-        needs.crate-layering.result != 'skipped'
+        needs.crate-layering.result != 'skipped' ||
+        needs.runner-labels.result == 'failure'
       )
     runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubuntu-slim' || 'ubuntu-latest' }}
     timeout-minutes: 5
@@ -2142,8 +2119,16 @@ jobs:
           # Skipped only when neither `oxy` nor `crate-layering` fired: an
           # agentic-only binary build, or a PR with no Rust at all.
           LAYERING: ${{ needs.crate-layering.result }}
+          LABELS: ${{ needs.runner-labels.result }}
         run: |
-          echo "build: $BUILD, archive: $ARCHIVE, tests to run: ${RUN_TESTS:-false}, partitions: $TESTS, layering: $LAYERING"
+          echo "build: $BUILD, archive: $ARCHIVE, tests to run: ${RUN_TESTS:-false}, partitions: $TESTS, layering: $LAYERING, labels: $LABELS"
+          # First, and before the rules-only early exit below: a dead runner
+          # label is the one failure that can reach this job on a PR with no
+          # Rust in it at all.
+          if [[ "$LABELS" != "success" && "$LABELS" != "skipped" ]]; then
+            echo "::error::No dead runner labels: $LABELS"
+            exit 1
+          fi
           if [[ "$LAYERING" != "success" && "$LAYERING" != "skipped" ]]; then
             echo "::error::Crate layering: $LAYERING"
             exit 1
@@ -2236,9 +2221,15 @@ jobs:
         startsWith(github.event.head_commit.message, 'chore: release')) &&
       github.event.pull_request.draft != true &&
       (github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release/'))
-    # Ubicloud arm64: the `oxy-binary-ci` artifact is built there, and `oxy` is
-    # an arm64 binary.
-    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubicloud-standard-4-arm' || 'ubuntu-latest' }}
+    # arm64, and it has to stay arm64: `oxy-binary-ci` is built by
+    # `cargo-check-and-test` on the Rust 4x shape, so this job runs that
+    # binary. The two shapes are set by different variables
+    # (`CI_WEB_RUNNER_4X` here, `CI_RUST_RUNNER_4X` there) and are arm64 only
+    # because both happen to name arm64 shapes -- change either and check both.
+    runs-on:
+      ${{ github.repository != 'oxy-hq/oxygen-internal' && 'ubuntu-latest' ||
+      (vars.CI_WEB_RUNNER_4X != '' && vars.CI_WEB_RUNNER_4X_SPOT) ||
+      vars.CI_WEB_RUNNER_4X || 'ubuntu-24.04-arm' }}
     # The script is ~30s locally. On the artifact path the job's own work is
     # checkout, the download, a cold pnpm store and the Playwright cache, then
     # the server boot — about 5–8 minutes, after the ~27-minute check job it

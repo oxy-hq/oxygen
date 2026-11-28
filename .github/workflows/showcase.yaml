@@ -47,7 +47,10 @@ jobs:
   showcase:
     name: Preview the showcase
     if: github.repository == 'oxy-hq/oxygen-internal'
-    runs-on: ubicloud-standard-4-arm
+    runs-on:
+      ${{ github.repository != 'oxy-hq/oxygen-internal' && 'ubuntu-latest' ||
+      (vars.CI_WEB_RUNNER_4X != '' && vars.CI_WEB_RUNNER_4X_SPOT) ||
+      vars.CI_WEB_RUNNER_4X || 'ubuntu-24.04-arm' }}
     timeout-minutes: 30
     concurrency:
       group: showcase-${{ inputs.pr }}
