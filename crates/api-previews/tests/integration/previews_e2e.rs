@@ -16,7 +16,7 @@ mod read_only_exec;
 mod worker;
 
 use axum::http::StatusCode;
-use sea_orm::EntityTrait;
+use sea_orm::{ConnectionTrait, DatabaseBackend, EntityTrait, Statement};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
@@ -172,15 +172,46 @@ async fn dry_run_to_the_end(fx: &Fx) -> Value {
     )
     .await;
     assert_eq!(submitted.status, StatusCode::ACCEPTED, "{}", submitted.body);
-    assert_eq!(
-        submitted.body["state"], "running",
-        "nothing else in progress"
+    // The POST's own `advance` and the background worker's sweep race to
+    // start the run. When the sweep wins, it holds the row locked and
+    // uncommitted while it seeds, so the POST's `advance` skips the row and
+    // reads it back still `queued`. Either way the run is started now, so
+    // the POST may say either state. "Nothing else in progress" is proved
+    // below from the queue itself, not from that state.
+    assert!(
+        matches!(submitted.body["state"].as_str(), Some("running" | "queued")),
+        "{}",
+        submitted.body
     );
     let run_id = submitted.body["run_id"].as_str().unwrap().to_string();
+    assert_eq!(
+        queue_runs(fx).await,
+        [run_id.as_str()],
+        "nothing else in progress"
+    );
     eventually(fx, format!("{}/runs/{run_id}", previews(fx)), |d| {
         d["state"] == "finished"
     })
     .await
+}
+
+/// Every run of the workspace in any state, of a kind that takes the
+/// workspace's one queue slot. The query does not filter on state: the dry
+/// run can already be `finished` when the query runs.
+async fn queue_runs(fx: &Fx) -> Vec<String> {
+    let rows = fx
+        .db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT run_id FROM workspace_preview_runs WHERE workspace_id = $1 \
+               AND kind IN ('procedure','transform_build','airway_sample') ORDER BY created_at",
+            [fx.ws.into()],
+        ))
+        .await
+        .unwrap();
+    rows.iter()
+        .map(|r| r.try_get::<String>("", "run_id").unwrap())
+        .collect()
 }
 
 /// The read went to the warehouse, the write did not, and no tunnel was ever
