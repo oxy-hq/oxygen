@@ -12,8 +12,5 @@ pub use oxy_platform::db::{
 /// browser session). Each step still connects through `establish_connection`
 /// at the point it always did.
 pub fn auth_platform() -> oxy_auth::ports::AuthPlatform {
-    oxy_auth::ports::AuthPlatform::new(
-        establish_connection,
-        oxy_platform::secrets::master_key_text_for_signing,
-    )
+    oxy_auth::ports::AuthPlatform::new(oxy_platform::ProcessPlatformDb)
 }

@@ -11,4 +11,7 @@ pub mod db;
 pub mod filters {
     pub use entity::filters::*;
 }
+pub mod platform_db;
 pub mod secrets;
+
+pub use platform_db::ProcessPlatformDb;

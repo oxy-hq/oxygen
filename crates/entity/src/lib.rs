@@ -70,6 +70,10 @@ pub mod prelude;
 pub mod db_failure;
 pub mod filters;
 
+// The kernel driven port for the platform database and master key; the
+// production implementation is `oxy_platform::ProcessPlatformDb`.
+pub mod platform_db;
+
 #[cfg(test)]
 mod typed_column_guard;
 

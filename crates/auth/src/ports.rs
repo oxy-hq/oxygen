@@ -16,6 +16,7 @@ use std::future::Future;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use entity::platform_db::PlatformDb;
 use oxy_shared::errors::OxyError;
 use sea_orm::DatabaseConnection;
 
@@ -38,40 +39,39 @@ where
     }
 }
 
-/// Where the session signing root's master-key text comes from
-/// (`oxy_platform::secrets::master_key_text_for_signing` in production).
-pub type MasterKeyText = fn() -> Option<String>;
-
 /// Everything `oxy-auth` reaches the platform for: the connector each step
 /// opens its connection through, and the master-key text `session_key` mixes
-/// into the signing root. Built once by the host (`oxy::database::client::
+/// into the signing root. Both come from one kernel port,
+/// [`entity::platform_db::PlatformDb`] (`oxy_platform::ProcessPlatformDb` in
+/// production). Built once by the host (`oxy::database::client::
 /// auth_platform`) and handed to `AuthState`, `BuiltInAuthenticator` and the
-/// entry points outside them. Cloning shares the connector.
+/// entry points outside them. Cloning shares the port.
 #[derive(Clone)]
 pub struct AuthPlatform {
-    db: Arc<dyn AuthDb>,
-    master_key_text: MasterKeyText,
+    platform: Arc<dyn PlatformDb<Error = OxyError>>,
 }
 
 impl AuthPlatform {
-    pub fn new(db: impl AuthDb + 'static, master_key_text: MasterKeyText) -> Self {
-        Self {
-            db: Arc::new(db),
-            master_key_text,
-        }
+    pub fn new(platform: impl PlatformDb<Error = OxyError> + 'static) -> Self {
+        Self::from_shared(Arc::new(platform))
+    }
+
+    /// Builds on a port the host already shares.
+    pub fn from_shared(platform: Arc<dyn PlatformDb<Error = OxyError>>) -> Self {
+        Self { platform }
     }
 
     /// The master-key text, read at the moment it is asked for (after boot
     /// has loaded a KMS key), exactly as the direct call read it.
     pub fn master_key_text_for_signing(&self) -> Option<String> {
-        (self.master_key_text)()
+        PlatformDb::master_key_text_for_signing(&*self.platform)
     }
 }
 
 #[async_trait]
 impl AuthDb for AuthPlatform {
     async fn connect(&self) -> Result<DatabaseConnection, OxyError> {
-        self.db.connect().await
+        PlatformDb::connect(&*self.platform).await
     }
 }
 
@@ -79,12 +79,23 @@ impl AuthDb for AuthPlatform {
 /// fails with a database error, and there is no master key.
 #[cfg(test)]
 pub(crate) fn test_platform() -> AuthPlatform {
-    AuthPlatform::new(
-        || async {
-            Err(OxyError::DBError(
-                "no database in this unit test".to_string(),
-            ))
-        },
-        || None,
-    )
+    struct NoDatabase;
+
+    impl PlatformDb for NoDatabase {
+        type Error = OxyError;
+
+        fn connect(&self) -> entity::platform_db::ConnectFuture<'_, OxyError> {
+            Box::pin(async {
+                Err(OxyError::DBError(
+                    "no database in this unit test".to_string(),
+                ))
+            })
+        }
+
+        fn master_key_text_for_signing(&self) -> Option<String> {
+            None
+        }
+    }
+
+    AuthPlatform::new(NoDatabase)
 }
