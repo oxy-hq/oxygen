@@ -54,4 +54,8 @@ mod routing;
 // builds `api_router(..)`, the unscoped `cleanup_stale_runs` writer, so it is
 // pinned into `serial-db` and out of `db-per-test`.
 mod local_mode_router;
+// The staff-console handlers with no extractor of their own, pinned behind the
+// guard their section relies on. It builds `api_router(..)` too, so it is
+// pinned into `serial-db` beside `local_mode_router`.
+mod admin_guard_pins;
 mod token_auth;

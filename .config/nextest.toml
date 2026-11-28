@@ -325,10 +325,11 @@ retries = 2
 # from that crate's unit tests in decompose RT) opens no database either, so it
 # is carved out the same way, as it ran there. So is `routing` (`oxy-app`'s
 # routing tests that build the real router, up with it in decompose LIFT),
-# which ran ungrouped in `oxy-app`'s `routing` binary. `local_mode_router` is
-# excluded for the opposite reason: it reaches the SHARED database (below).
+# which ran ungrouped in `oxy-app`'s `routing` binary. `local_mode_router` and
+# `admin_guard_pins` are excluded for the opposite reason: they reach the SHARED
+# database (below).
 [[profile.default.overrides]]
-filter = "kind(test) & package(=oxy-server) & binary(=integration) & !test(/^route_roles::/) & !test(/^route_catalog::/) & !test(/^routing::/) & !test(/^local_mode_router::/)"
+filter = "kind(test) & package(=oxy-server) & binary(=integration) & !test(/^route_roles::/) & !test(/^route_catalog::/) & !test(/^routing::/) & !test(/^local_mode_router::/) & !test(/^admin_guard_pins::/)"
 test-group = "db-per-test"
 retries = 2
 
@@ -341,11 +342,13 @@ retries = 2
 # below), not in `db-per-test`: test groups are independent semaphores, so
 # `db-per-test` would bound it against the others and not at all against the
 # `agentic-runtime`/`agentic-pipeline` tests that own those rows.
+# `admin_guard_pins` (the staff handlers with no extractor, pinned behind their
+# section's guard) builds the same router, so it sits here for the same reason.
 # `oxy-guards`' `shared_db_registry.rs` reads this alternation as oxy-server's
 # list of shared-database modules (the first `package(=oxy-server)` override
 # with one), so keep it the only one.
 [[profile.default.overrides]]
-filter = "kind(test) & package(=oxy-server) & binary(=integration) & test(/^(local_mode_router)::/)"
+filter = "kind(test) & package(=oxy-server) & binary(=integration) & test(/^(local_mode_router|admin_guard_pins)::/)"
 test-group = "serial-db"
 retries = 2
 
@@ -563,4 +566,38 @@ retries = 2
 # retry would hide the next unscoped writer instead of naming it.
 [[profile.default.overrides]]
 filter = "package(=oxy-server) & kind(lib) & test(=drivers::recovery::procedure_run_tests::a_single_process_executes_the_run_it_queued)"
+test-group = "serial-db"
+
+# The same exposure from two other crates: lib tests that queue a Global run in
+# a workspace of their own on the shared `OXY_DATABASE_URL`, each seeded with no
+# `path`. The latency worker `commands::serve_background::tests` starts (cloud
+# mode, above) retires exactly that run: `classify_workspace` in
+# `crates/server/src/drivers/recovery.rs` takes a path-less workspace as
+# unrunnable, and `retire_orphaned_runs` cancels its queue row and fails the
+# run. A requeued check then reads `failed`/`cancelled` instead of
+# `running`/`queued`, and a settle poll closes a row its claim still holds.
+#
+# Serialized here rather than fixed in the seed. A `path` closes the retire arm
+# and opens the drive arm: `tick_cloud` goes on to `worker_project_ctx`, and
+# `build_cloud_project_ctx_result` (`oxy-workspace-runtime`'s `driver_ctx.rs`)
+# then either assembles a context from the working copy, on a node that can
+# compile, so `drive_pending` claims the run with the real executor, or enqueues
+# a lazy compile for the workspace. Either is the same race by another door. A
+# database per test would remove it too, at a full migration chain per test;
+# this pins 17 tests, 13 of them on the database. No `retries`, for the reason
+# the pin above gives.
+#
+# Modules, not names, so a sibling that seeds the same way is covered:
+# `analyze::transform_tests::a_check_queues_each_auto_build_once` does, through
+# the same `seed_workspace`, and the audit that found the others missed it.
+# One `test()` per module, with no parenthesised alternation: `oxy-api-previews`
+# shares the integration harness, so `shared_db_registry.rs` reads the first
+# `package(=oxy-api-previews)` block carrying one as its list of integration
+# MODULES, and this is not that list.
+[[profile.default.overrides]]
+filter = "package(=oxy-api-previews) & kind(lib) & (test(/^analyze::tests::/) | test(/^analyze::requeue_tests::/) | test(/^analyze::transform_tests::/))"
+test-group = "serial-db"
+
+[[profile.default.overrides]]
+filter = "package(=oxy-custom-apps) & kind(lib) & test(/^automation_run::settle::tests::/)"
 test-group = "serial-db"
