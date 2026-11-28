@@ -95,6 +95,18 @@ pub(crate) fn test_platform() -> AuthPlatform {
         fn master_key_text_for_signing(&self) -> Option<String> {
             None
         }
+
+        fn seal(&self, _plaintext: &[u8]) -> Result<Vec<u8>, OxyError> {
+            Err(OxyError::SecretManager(
+                "no master key in this unit test".to_string(),
+            ))
+        }
+
+        fn open(&self, _sealed: &[u8]) -> Result<Vec<u8>, OxyError> {
+            Err(OxyError::SecretManager(
+                "no master key in this unit test".to_string(),
+            ))
+        }
     }
 
     AuthPlatform::new(NoDatabase)

@@ -23,7 +23,10 @@ pub(super) fn schema(live: &str) -> String {
 /// A broker whose Admin API is nowhere: a test that reaches the network or the
 /// tenant lookup fails with some other error, never the one it asserts.
 fn broker() -> AirhouseTokenBroker {
-    AirhouseTokenBroker::new(AirhouseAdminClient::new("http://127.0.0.1:9", "tok"))
+    AirhouseTokenBroker::new(
+        AirhouseAdminClient::new("http://127.0.0.1:9", "tok"),
+        crate::platform::InstalledPlatformDb::shared(),
+    )
 }
 
 /// Record what the capabilities probe would have answered, `age` ago.

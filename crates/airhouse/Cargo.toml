@@ -29,7 +29,6 @@ connector = [
 # `airhouse_managed` credential resolver was removed in Phase 6 of the SA
 # migration.
 credentials = [
-    "dep:oxy-platform",
     "dep:oxy-shared",
     "dep:entity",
     "dep:sea-orm",
@@ -96,8 +95,9 @@ async-trait = { workspace = true, optional = true }
 async-stream = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }
 
-# Admin feature deps (platform-aware)
-oxy-platform = { workspace = true, optional = true }
+# Admin feature deps. The platform database and master key come in through
+# the kernel `entity::platform_db::PlatformDb` port (`src/platform.rs`), not a
+# dependency on oxy-platform.
 oxy-shared = { workspace = true, optional = true }
 entity = { workspace = true, optional = true }
 sea-orm = { workspace = true, optional = true }

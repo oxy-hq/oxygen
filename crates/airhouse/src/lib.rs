@@ -86,6 +86,11 @@ pub mod provisioner;
 #[cfg(feature = "admin")]
 pub mod post_provision;
 
+/// The kernel `PlatformDb` port the broker and provisioner take, and the
+/// process-wide install their factories forward to.
+#[cfg(feature = "admin")]
+pub mod platform;
+
 /// Give a workspace its tenant when it has none (idempotent).
 #[cfg(feature = "admin")]
 pub mod ensure_tenant;
@@ -126,6 +131,9 @@ pub use config::{
     AirhouseConfig, AirhouseRuntimeConfig, LOCAL_ORG_ID, REQUIRED_VARS, WireEndpoint,
     analytics_wire_endpoint, ducklake_catalog, provisioner_for, token_broker, wire_endpoint,
 };
+
+#[cfg(feature = "admin")]
+pub use platform::{InstalledPlatformDb, SharedPlatformDb, install_platform_db};
 
 #[cfg(feature = "admin")]
 pub use post_provision::{HookError, PostProvisionHook, register_post_provision_hook};

@@ -109,14 +109,9 @@ async fn a_legacy_double_hyphen_slugs_schema_is_never_a_sandboxs_sibling() {
     const LEGACY: &str = "store-ops--dev-a1";
     const SHARED_NAME: &str = "app_store_ops__dev_a1";
 
-    // Airhouse configured, and not there: reaching for it fails.
-    // SAFETY: nextest runs each test in its own process.
-    unsafe {
-        std::env::set_var("AIRHOUSE_BASE_URL", "http://127.0.0.1:9");
-        std::env::set_var("AIRHOUSE_ADMIN_TOKEN", "unused");
-        std::env::set_var("AIRHOUSE_WIRE_HOST", "127.0.0.1");
-        std::env::set_var("AIRHOUSE_WIRE_PORT", "9");
-    }
+    // Airhouse configured, and not there: reaching for it fails. (The same
+    // four variables as before, and the platform port the broker forwards to.)
+    crate::sandbox_teardown_task::point_airhouse_nowhere();
     let t = seeded_tenant().await;
     let noop = FunctionSpec {
         name: "noop",

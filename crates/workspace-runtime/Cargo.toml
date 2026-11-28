@@ -140,6 +140,9 @@ url = { workspace = true }
 oxy-api-data-plane = { path = "../api-data-plane" }
 # The broker and provisioner tests decode the tokens they mint.
 base64 = { workspace = true, features = ["std"] }
+# The broker and provisioner take the platform port; these tests hand them the
+# production one (`oxy_platform::ProcessPlatformDb`), as oxy-server does.
+oxy-platform = { workspace = true }
 # `airhouse_pool_poison` parses the pgwire DSN it poisons.
 tokio-postgres = { workspace = true }
 # The route tests drive a router with `ServiceExt::oneshot`. (`sentry`'s `test`

@@ -9,7 +9,8 @@ use oxy_shared::errors::OxyError;
 /// the process-wide state the free functions read, so a connect shares the
 /// one pool [`crate::db::establish_connection`] initializes, and the master
 /// key is read when asked for (after boot has installed a KMS key), exactly as
-/// [`crate::secrets::master_key_text_for_signing`] reads it.
+/// [`crate::secrets::master_key_text_for_signing`] and
+/// [`crate::secrets::envelope`] read it.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ProcessPlatformDb;
 
@@ -22,5 +23,13 @@ impl PlatformDb for ProcessPlatformDb {
 
     fn master_key_text_for_signing(&self) -> Option<String> {
         crate::secrets::master_key_text_for_signing()
+    }
+
+    fn seal(&self, plaintext: &[u8]) -> Result<Vec<u8>, OxyError> {
+        crate::secrets::envelope::seal(plaintext)
+    }
+
+    fn open(&self, sealed: &[u8]) -> Result<Vec<u8>, OxyError> {
+        crate::secrets::envelope::open(sealed)
     }
 }

@@ -127,7 +127,6 @@ allowed = [
   "agentic-pipeline -> agentic-automation",
   "agentic-semantic -> oxy-airlayer-compat",
   "airhouse -> agentic-connector",
-  "airhouse -> oxy-platform",
   "oxy -> oxy-airlayer-compat",
   "oxy -> oxy-compile",
   "oxy -> oxy-git",

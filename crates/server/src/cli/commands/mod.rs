@@ -207,6 +207,11 @@ pub fn prepare(name: Option<&str>) {
     // `airhouse` / `oxy-oltp` directly); this is where the binary wires the impl.
     crate::managed_connection_resolver::install();
 
+    // Airhouse's process-wide broker and provisioner reach the platform
+    // database and master key through the kernel port, not oxy-platform
+    // itself; this is where the binary installs the implementation.
+    airhouse::install_platform_db(std::sync::Arc::new(oxy_platform::ProcessPlatformDb));
+
     // Add breadcrumb for CLI command
     if let Some(command_name) = name {
         sentry_config::add_breadcrumb(

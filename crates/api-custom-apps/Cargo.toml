@@ -132,6 +132,10 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
 brotli = { workspace = true }
+# The sandbox teardown tests configure Airhouse, so the process-wide broker is
+# live; they install the platform port it forwards to (`oxy_platform::
+# ProcessPlatformDb`), as oxy-server does at boot.
+oxy-platform = { workspace = true }
 # `new_agentic_state`, the AgenticState the integration tests build.
 agentic-http = { workspace = true }
 # `usage_fixtures`: an in-memory stand-in for a workspace's Airhouse and a fixed

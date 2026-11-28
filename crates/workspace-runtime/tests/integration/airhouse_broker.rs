@@ -163,7 +163,7 @@ pub(super) fn mint_response(tenant: &str, role: &str, ttl_secs: i64) -> Value {
 
 pub(super) fn make_broker(server: &MockServer) -> AirhouseTokenBroker {
     let client = AirhouseAdminClient::new(server.uri(), "tok");
-    AirhouseTokenBroker::new(client)
+    AirhouseTokenBroker::new(client, std::sync::Arc::new(oxy_platform::ProcessPlatformDb))
 }
 
 #[tokio::test]

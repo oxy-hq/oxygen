@@ -111,7 +111,11 @@ fn tenant_body(id: &str, prefix: &str) -> Value {
 
 fn make_provisioner(db: DatabaseConnection, server: &MockServer) -> TenantProvisioner {
     let client = AirhouseAdminClient::new(server.uri(), "tok");
-    TenantProvisioner::new(db, client)
+    TenantProvisioner::new(
+        db,
+        client,
+        std::sync::Arc::new(oxy_platform::ProcessPlatformDb),
+    )
 }
 
 fn sa_record_body(sa_id: &str, name: &str, tenant_id: &str) -> Value {

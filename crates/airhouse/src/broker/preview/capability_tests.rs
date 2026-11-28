@@ -17,7 +17,10 @@ use super::tests::{TTL, cred, ns, schema, scopes_writers, seed};
 use crate::admin::{AirhouseAdminClient, UserRole};
 
 fn broker_at(server: &MockServer) -> AirhouseTokenBroker {
-    AirhouseTokenBroker::new(AirhouseAdminClient::new(server.uri(), "tok"))
+    AirhouseTokenBroker::new(
+        AirhouseAdminClient::new(server.uri(), "tok"),
+        crate::platform::InstalledPlatformDb::shared(),
+    )
 }
 
 async fn mount_capabilities(server: &MockServer, answer: ResponseTemplate, times: u64) {
@@ -148,7 +151,10 @@ async fn a_no_forgets_every_cached_preview_credential() {
 /// preview credential is forgotten with it, not only the refused one.
 #[tokio::test]
 async fn an_unconfined_writer_forgets_every_cached_preview_credential() {
-    let broker = AirhouseTokenBroker::new(AirhouseAdminClient::new("http://127.0.0.1:9", "tok"));
+    let broker = AirhouseTokenBroker::new(
+        AirhouseAdminClient::new("http://127.0.0.1:9", "tok"),
+        crate::platform::InstalledPlatformDb::shared(),
+    );
     scopes_writers(&broker, true, Duration::ZERO).await;
     let ws = Uuid::new_v4();
     let (confined, unconfined) = (vec![schema("toast_pos")], vec![schema("site_selection")]);

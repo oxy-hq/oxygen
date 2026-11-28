@@ -142,6 +142,9 @@ agentic-pipeline = { workspace = true }
 # `import`: `oxy dev seed` loads the demo workspace's data files into its
 # tenant (`src/dev/seed/seed_airhouse.rs`; oxy-app's until decompose SD).
 airhouse = { workspace = true, features = ["connector", "sql-rules", "preview-sql", "import"] }
+# `cli::commands::prepare` installs `ProcessPlatformDb` as the platform port airhouse's broker
+# and provisioner forward to (`airhouse::install_platform_db`).
+oxy-platform = { workspace = true }
 axum-server = { workspace = true }
 clap = { workspace = true, features = ["derive", "env"] }
 include_dir = { workspace = true }

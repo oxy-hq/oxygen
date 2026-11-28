@@ -1,5 +1,5 @@
 use chrono::{DateTime, FixedOffset, Utc};
-use oxy_platform::secrets::envelope;
+use entity::platform_db::PlatformDb;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, DatabaseBackend,
     DatabaseConnection, DatabaseTransaction, EntityTrait, QueryFilter, Statement, TransactionTrait,
@@ -11,6 +11,7 @@ use uuid::Uuid;
 use crate::admin::{AirhouseAdminClient, AirhouseError, TenantRecord, UserRole};
 use crate::entity::Tenants as AirhouseTenants;
 use crate::entity::tenants::{self as airhouse_tenants, TenantStatus};
+use crate::platform::SharedPlatformDb;
 
 /// Default `max_role` and `max_ttl_secs` for SAs minted on tenant
 /// provisioning. The TTL matches the airhouse system cap
@@ -111,11 +112,24 @@ pub enum TenantRemoval {
 pub struct TenantProvisioner {
     db: DatabaseConnection,
     client: AirhouseAdminClient,
+    /// The master key a service account's bearer is sealed under.
+    platform: SharedPlatformDb,
 }
 
 impl TenantProvisioner {
-    pub fn new(db: DatabaseConnection, client: AirhouseAdminClient) -> Self {
-        Self { db, client }
+    /// `platform` seals each service account's bearer under the master key;
+    /// [`crate::provisioner_for`] passes
+    /// [`crate::platform::InstalledPlatformDb`].
+    pub fn new(
+        db: DatabaseConnection,
+        client: AirhouseAdminClient,
+        platform: SharedPlatformDb,
+    ) -> Self {
+        Self {
+            db,
+            client,
+            platform,
+        }
     }
 
     /// Idempotent: re-running with the same `workspace_id` returns the existing
@@ -561,7 +575,7 @@ impl TenantProvisioner {
         let max_role = created.record.max_role.clone();
         let max_ttl_secs = created.record.max_ttl_secs;
 
-        let bearer_ciphertext = envelope::seal(created.bearer.as_bytes())
+        let bearer_ciphertext = PlatformDb::seal(&*self.platform, created.bearer.as_bytes())
             .map_err(|e| ProvisionerError::Crypto(e.to_string()))?;
 
         let now = Utc::now().fixed_offset();
@@ -636,7 +650,7 @@ impl TenantProvisioner {
             .await?;
         let new_sa_id = created.record.id.clone();
 
-        let bearer_ciphertext = envelope::seal(created.bearer.as_bytes())
+        let bearer_ciphertext = PlatformDb::seal(&*self.platform, created.bearer.as_bytes())
             .map_err(|e| ProvisionerError::Crypto(e.to_string()))?;
         let now = Utc::now().fixed_offset();
 

@@ -68,7 +68,20 @@ const REQUIRED_ENV: &[&str] = &[
     "AIRHOUSE_WIRE_PORT",
 ];
 
+/// The provisioner as `airhouse::provisioner_for` builds it, on the
+/// production platform port.
+fn provisioner(db: DatabaseConnection, client: AirhouseAdminClient) -> TenantProvisioner {
+    TenantProvisioner::new(
+        db,
+        client,
+        std::sync::Arc::new(oxy_platform::ProcessPlatformDb),
+    )
+}
+
+/// Also installs the platform port the process-wide broker (`token_broker()`)
+/// forwards to, as `oxy-server` does at boot: this binary has no `main`.
 fn assert_env_set() {
+    airhouse::install_platform_db(std::sync::Arc::new(oxy_platform::ProcessPlatformDb));
     let missing: Vec<&&str> = REQUIRED_ENV
         .iter()
         .filter(|v| std::env::var(v).is_err() || std::env::var(v).unwrap().is_empty())
@@ -378,7 +391,7 @@ async fn ingest_one_event_through_real_airhouse() {
         std::env::var("AIRHOUSE_BASE_URL").unwrap(),
         std::env::var("AIRHOUSE_ADMIN_TOKEN").unwrap(),
     );
-    let tenant_prov = TenantProvisioner::new(db.clone(), admin_client);
+    let tenant_prov = provisioner(db.clone(), admin_client);
     let tenant_name = format!("oxy-cameras-tierb-{}", workspace_id.simple());
     tenant_prov
         .provision(workspace_id, tenant_name.clone())
@@ -528,7 +541,7 @@ async fn ddl_gated_on_camera_intent() {
         std::env::var("AIRHOUSE_BASE_URL").unwrap(),
         std::env::var("AIRHOUSE_ADMIN_TOKEN").unwrap(),
     );
-    let tenant_prov = TenantProvisioner::new(db.clone(), admin_client);
+    let tenant_prov = provisioner(db.clone(), admin_client);
     let tenant_name = format!("oxy-cameras-gating-{}", workspace_id.simple());
     tenant_prov
         .provision(workspace_id, tenant_name.clone())

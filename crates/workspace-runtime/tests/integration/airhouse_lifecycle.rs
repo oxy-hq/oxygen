@@ -77,7 +77,12 @@ fn set_test_encryption_key() {
 /// handlers) resolves to `Enabled`. The cached config is a process-wide
 /// `OnceLock`, so this must be called before the first handler invocation —
 /// nextest runs each test in its own process so the cache starts empty.
+///
+/// The handlers reach the process-wide broker and provisioner, which forward
+/// to the platform port `oxy-server` installs at boot; this binary has no
+/// `main`, so it installs the same one here.
 fn set_airhouse_env(server: &MockServer) {
+    airhouse::install_platform_db(std::sync::Arc::new(oxy_platform::ProcessPlatformDb));
     unsafe {
         std::env::set_var("AIRHOUSE_BASE_URL", server.uri());
         std::env::set_var("AIRHOUSE_ADMIN_TOKEN", ADMIN_TOKEN);
@@ -88,6 +93,16 @@ fn set_airhouse_env(server: &MockServer) {
 
 fn admin_client(server: &MockServer) -> AirhouseAdminClient {
     AirhouseAdminClient::new(server.uri(), ADMIN_TOKEN)
+}
+
+/// The provisioner the handlers build (`airhouse::provisioner_for`), on the
+/// production platform port.
+fn provisioner(db: DatabaseConnection, server: &MockServer) -> TenantProvisioner {
+    TenantProvisioner::new(
+        db,
+        admin_client(server),
+        std::sync::Arc::new(oxy_platform::ProcessPlatformDb),
+    )
 }
 
 /// Seed a user, org, workspace, and org membership row.
@@ -514,7 +529,7 @@ async fn full_lifecycle_provision_to_deprovision() {
     assert_eq!(status, StatusCode::NO_CONTENT);
 
     // ── 6. tenant deprovision ────────────────────────────────────────────
-    let tenant_prov = TenantProvisioner::new(db.clone(), admin_client(&server));
+    let tenant_prov = provisioner(db.clone(), &server);
     tenant_prov
         .deprovision(workspace_id)
         .await

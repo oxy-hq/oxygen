@@ -11,7 +11,10 @@ const TTL: std::time::Duration = std::time::Duration::from_secs(900);
 /// A broker whose Admin API is nowhere: a mint that reaches the network
 /// fails with some other error, never the one a test asserts.
 fn broker() -> AirhouseTokenBroker {
-    AirhouseTokenBroker::new(AirhouseAdminClient::new("http://127.0.0.1:9", "tok"))
+    AirhouseTokenBroker::new(
+        AirhouseAdminClient::new("http://127.0.0.1:9", "tok"),
+        crate::platform::InstalledPlatformDb::shared(),
+    )
 }
 
 fn subject(ws: Uuid) -> BrokerSubject {

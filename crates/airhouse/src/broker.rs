@@ -41,9 +41,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
+use entity::platform_db::PlatformDb;
 use entity::workspace_members::WorkspaceRole;
-use oxy_platform::db::establish_connection;
-use oxy_platform::secrets::envelope;
 use oxy_shared::errors::OxyError;
 use rand::RngExt;
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
@@ -57,6 +56,7 @@ use crate::admin::{
 };
 use crate::entity::Tenants as AirhouseTenants;
 use crate::entity::tenants::{self as airhouse_tenants};
+use crate::platform::SharedPlatformDb;
 
 /// Workspace-preview credentials: [`BrokerSubject::Preview`] and
 /// [`AirhouseTokenBroker::mint_for_preview`].
@@ -463,6 +463,8 @@ type SharedCache = Arc<RwLock<HashMap<CacheKey, CacheEntry>>>;
 /// via [`crate::token_broker`].
 pub struct AirhouseTokenBroker {
     client: AirhouseAdminClient,
+    /// Where the tenant row is read from and its bearer opened.
+    platform: SharedPlatformDb,
     cache: SharedCache,
     /// Whether this deployment's Airhouse scopes Writers (`preview`).
     #[cfg(feature = "preview-sql")]
@@ -472,9 +474,13 @@ pub struct AirhouseTokenBroker {
 }
 
 impl AirhouseTokenBroker {
-    pub fn new(client: AirhouseAdminClient) -> Self {
+    /// `platform` is the platform database the tenant rows are read from and
+    /// the master key their bearers are opened with; [`crate::token_broker`]
+    /// passes [`crate::platform::InstalledPlatformDb`].
+    pub fn new(client: AirhouseAdminClient, platform: SharedPlatformDb) -> Self {
         Self {
             client,
+            platform,
             cache: Arc::new(RwLock::new(HashMap::new())),
             #[cfg(feature = "preview-sql")]
             scoped_writers: preview::ScopedWriters::default(),
@@ -821,7 +827,7 @@ impl AirhouseTokenBroker {
     }
 
     async fn load_tenant_secret(&self, workspace_id: Uuid) -> Result<TenantSecret, BrokerError> {
-        let conn = establish_connection().await.map_err(|e| {
+        let conn = PlatformDb::connect(&*self.platform).await.map_err(|e| {
             BrokerError::Db(sea_orm::DbErr::Custom(format!(
                 "failed to open oxy DB connection: {e}"
             )))
@@ -835,7 +841,7 @@ impl AirhouseTokenBroker {
         let bearer_ciphertext = row
             .bearer_ciphertext
             .ok_or(BrokerError::TenantHasNoServiceAccount(workspace_id))?;
-        let bearer_bytes = envelope::open(&bearer_ciphertext)
+        let bearer_bytes = PlatformDb::open(&*self.platform, &bearer_ciphertext)
             .map_err(|e| BrokerError::Crypto(workspace_id, e.to_string()))?;
         let sa_bearer = String::from_utf8(bearer_bytes)
             .map_err(|e| BrokerError::Crypto(workspace_id, format!("non-utf8 bearer: {e}")))?;

@@ -304,7 +304,11 @@ pub fn admin_client() -> Option<AirhouseAdminClient> {
 pub fn provisioner_for(db: sea_orm::DatabaseConnection) -> Option<TenantProvisioner> {
     let cfg = AirhouseConfig::cached().as_runtime()?.clone();
     let client = AirhouseAdminClient::new(cfg.base_url.clone(), cfg.admin_token.clone());
-    Some(TenantProvisioner::new(db, client))
+    Some(TenantProvisioner::new(
+        db,
+        client,
+        crate::platform::InstalledPlatformDb::shared(),
+    ))
 }
 
 /// Process-wide [`AirhouseTokenBroker`]. The broker holds an in-memory
@@ -316,10 +320,10 @@ pub fn token_broker() -> Option<&'static AirhouseTokenBroker> {
     static BROKER: OnceLock<AirhouseTokenBroker> = OnceLock::new();
     let cfg = AirhouseConfig::cached().as_runtime()?;
     Some(BROKER.get_or_init(|| {
-        AirhouseTokenBroker::new(AirhouseAdminClient::new(
-            cfg.base_url.clone(),
-            cfg.admin_token.clone(),
-        ))
+        AirhouseTokenBroker::new(
+            AirhouseAdminClient::new(cfg.base_url.clone(), cfg.admin_token.clone()),
+            crate::platform::InstalledPlatformDb::shared(),
+        )
     }))
 }
 
