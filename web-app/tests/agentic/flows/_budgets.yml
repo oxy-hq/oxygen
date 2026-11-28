@@ -271,9 +271,8 @@
 - flow: airway-pipeline-run
   # One act step (click Run, aria-label only — no testid on this surface
   # yet). Cold cost is dominated by that click's tool-pick plus the judge
-  # call; the run itself (Open-Meteo extract -> in-memory load) costs no
-  # LLM tokens. Measured against a manually-seeded backend: ~30-40s wall
-  # clock from click to a "done" status badge.
+  # call; the run itself (weather extract from the runner's loopback
+  # fixture server -> in-memory load) costs no LLM tokens.
   cold_usd: 0.40
   warm_usd: 0.008
 

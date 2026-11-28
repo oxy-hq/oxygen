@@ -15,6 +15,7 @@ import {
   runList,
   runWatch
 } from "./cli-modes";
+import { ensureFixtureServerFor } from "./fixture-server";
 import { ensureFrontend } from "./frontend";
 import {
   appendToStepSummary,
@@ -167,6 +168,14 @@ async function main(): Promise<void> {
       : `[runner] per-case budget: $${budgetUsd.toFixed(2)}`
   );
 
+  // Loopback stand-ins for third-party APIs that a flow's backend work calls
+  // (runner/fixture-server.ts), started only when a selected flow needs one
+  // so other flows never claim the port. Started even under --no-auto-backend: the
+  // backend makes the request, so CI needs it as much as a local run. Started
+  // before anything is spawned, for the same reason as the budget above: a
+  // taken port must not leave a backend and a dev server behind.
+  const fixtures = await ensureFixtureServerFor(flows);
+
   const mode = pickBackendMode(flows);
   // Propagate the resolved URLs into the environment so anything reading
   // them downstream (the bespoke runtime's Playwright context, the seed
@@ -190,16 +199,12 @@ async function main(): Promise<void> {
 
   const startedAt = new Date().toISOString();
   const startMs = Date.now();
-  const flowResults: FlowResult[] = [];
+  let flowResults: FlowResult[] = [];
 
   try {
-    for (const flow of flows) {
-      const tag = args.tag;
-      const filtered = tag ? flow.cases.filter((c) => c.tags.includes(tag)) : flow.cases;
-      if (filtered.length === 0) continue;
-      flowResults.push(await runFlow(flow, filtered, runtime, apiKey, args, budgetUsd));
-    }
+    flowResults = await runFlows(flows, runtime, apiKey, args, budgetUsd);
   } finally {
+    await fixtures.shutdown();
     if (frontend.spawned) await frontend.shutdown();
     if (backend.spawned) await backend.shutdown();
   }
@@ -238,6 +243,24 @@ async function main(): Promise<void> {
     f.cases.every((c) => c.runs.every((r) => r.passed && r.expect_results.every((e) => e.passed)))
   );
   process.exit(allPassed ? 0 : 1);
+}
+
+/** Run every flow that has a case matching `--tag` (all of them without one). */
+async function runFlows(
+  flows: FlowTest[],
+  runtime: Runtime,
+  apiKey: string,
+  args: CliArgs,
+  budgetUsd: number | undefined
+): Promise<FlowResult[]> {
+  const results: FlowResult[] = [];
+  for (const flow of flows) {
+    const tag = args.tag;
+    const filtered = tag ? flow.cases.filter((c) => c.tags.includes(tag)) : flow.cases;
+    if (filtered.length === 0) continue;
+    results.push(await runFlow(flow, filtered, runtime, apiKey, args, budgetUsd));
+  }
+  return results;
 }
 
 async function runFlow(

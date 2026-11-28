@@ -22,10 +22,10 @@
 #
 # THE FIXTURE. `oxy dev seed` (default workspace path `./examples`, which this
 # flow's CI bucket and `verify-all.sh` phase 4 both use) compiles and promotes
-# the workspace, so its six `.airway.yml` pipelines —
-# `examples/pipelines/{weather,toast_pos,ubereats,sql_ingest,clickhouse_ingest,
-# oltp_toast}.airway.yml` — become compiled definitions, and it publishes the
-# example custom apps. `--fixtures` adds `local/pulse-demo`, whose live build
+# the workspace, so its seven `.airway.yml` pipelines —
+# `examples/pipelines/{weather,weather_fixture,toast_pos,ubereats,sql_ingest,
+# clickhouse_ingest,oltp_toast}.airway.yml` — become compiled definitions,
+# and it publishes the example custom apps. `--fixtures` adds `local/pulse-demo`, whose live build
 # declares functions with destinations and watched tables. That is a graph with
 # sources, pipelines, stores and apps in it.
 #
@@ -47,7 +47,7 @@
 #
 # WHY CASE 2 EXPANDS FIRST. The canvas folds more than three sources,
 # pipelines or apps of one workspace into a single group card until it is
-# clicked (`admin-data-flow-group`), so with six pipelines there may be no
+# clicked (`admin-data-flow-group`), so with seven pipelines there may be no
 # `admin-data-flow-node-pipeline` element on screen at all until
 # `admin-data-flow-expand-all` runs. Clicking expand-all first makes the case
 # independent of how many pipelines the fixture happens to carry.

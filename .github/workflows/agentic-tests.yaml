@@ -111,7 +111,7 @@ jobs:
           # NOTHING else — no custom app, no `.airway.yml`, no `.monitor.yml` —
           # so no custom-app or pipeline flow could ever have passed against
           # it. `examples/` (the seed's own default) holds the published
-          # example apps, six Airway pipelines and the monitors.
+          # example apps, seven Airway pipelines and the monitors.
           #
           # `seed_flags` — `--llm-keys` stores the workspace's LLM key so an
           # agentic run can happen; `--fixtures` additionally builds

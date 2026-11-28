@@ -1,0 +1,32 @@
+name: weather_fixture
+description: >
+  TEST FIXTURE for the `airway-pipeline-run` agentic browser flow. It is not a
+  demo; use weather.airway.yml for that. The source is the real `kind: weather`
+  connector with `base_url` pointed at a loopback responder that the agentic
+  runner starts (web-app/tests/agentic/runner/fixture-server.ts). The responder
+  returns a committed Open-Meteo response
+  (web-app/tests/agentic/fixtures/open-meteo/forecast.json), so the flow does
+  not depend on reaching api.open-meteo.com. Run this pipeline anywhere else and
+  its extract fails with a connection error. That is expected.
+
+source:
+  kind: weather
+  config:
+    provider: open_meteo
+    # The runner's FIXTURE_HOST / FIXTURE_PORT. A unit test
+    # (runner/fixture-server.test.ts) keeps the two in step.
+    base_url: http://127.0.0.1:18744/open-meteo/v1
+    # One location: the fixture is a single-coordinate response, and the
+    # connector maps a bulk response back to locations by index.
+    locations:
+      - { id: 1, latitude: 37.8037, longitude: -122.4368, timezone: America/Los_Angeles }
+    past_days: 3
+    forecast_days: 3
+
+destination:
+  # In-process and ephemeral, like weather.airway.yml: no warehouse to provision.
+  kind: memory
+  config:
+    dataset_name: weather_fixture
+
+concurrency: 1

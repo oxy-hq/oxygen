@@ -12,17 +12,22 @@
 # This flow goes straight to the flat, non-IDE route the way
 # apps-data-app-charts goes straight to /apps/<b64>.
 #
-# FIXTURE — examples/pipelines/weather.airway.yml, already committed. Chosen
-# because it is the one pipeline built to be run from the UI with zero setup:
-# source is Open-Meteo's keyless public forecast API (no credentials, no
-# secret manager entry), and the destination is `kind: memory` (in-process,
-# ephemeral — no warehouse/Postgres/Airhouse destination to provision). Its
-# own header calls this out explicitly: "so the pipeline runs live in the UI
-# (IDE -> Pipelines -> Run) with no warehouse infra". Verified directly
-# (POST /agentic-airway/runs against a manually-run backend) that a run
-# completes in well under a minute: task_status flips queued -> running ->
-# done, with a real extract/normalize/load event trace for the
-# weather_daily + weather_daily_forecast resources.
+# FIXTURE — examples/pipelines/weather_fixture.airway.yml. It is the real
+# `kind: weather` (Open-Meteo) connector, so the run goes through the same
+# airway extract -> normalize -> load path as the demo weather.airway.yml, with
+# `base_url` pointed at http://127.0.0.1:18744/open-meteo/v1. The runner
+# serves that address itself (runner/fixture-server.ts) from the committed
+# response fixtures/open-meteo/forecast.json, read-only and loopback-only. The
+# destination is `kind: memory` (in-process, ephemeral): no
+# warehouse/Postgres/Airhouse destination to provision, and no credentials.
+#
+# WHY NOT THE DEMO PIPELINE. This flow used to run weather.airway.yml, whose
+# source calls the live api.open-meteo.com. On 2026-11-28 a CI runner could
+# not reach that host (run 46124368691: `airway::connector::http: transport
+# failure, retrying` about 31 s apart), the run never finished, and the
+# completion gate below timed out. Whether a third-party API is reachable
+# from the runner is not what this flow tests. The demo pipeline is left
+# exactly as it ships.
 #
 # demo_project (the `--local` fixture) has no `.airway.yml` at all, so this
 # flow needs `backend_mode: cloud`. Unlike the two admin/airway flows, cloud
@@ -69,13 +74,13 @@ settings:
   max_steps: 20
 
 setup:
-  # pathb64 for `pipelines/weather.airway.yml`, exactly as returned by
+  # pathb64 for `pipelines/weather_fixture.airway.yml`, exactly as returned by
   # `GET /{workspace}/airway-pipelines` (unpadded base64 — do not add `==`).
   # Workspace/org prefix per the recipe above.
-  - "goto:/local/workspaces/70787bb2-e11b-5488-b2c3-02e60d5fc7d3/pipelines/cGlwZWxpbmVzL3dlYXRoZXIuYWlyd2F5LnltbA"
+  - "goto:/local/workspaces/70787bb2-e11b-5488-b2c3-02e60d5fc7d3/pipelines/cGlwZWxpbmVzL3dlYXRoZXJfZml4dHVyZS5haXJ3YXkueW1s"
 
 cases:
-  - name: run weather.airway.yml and land on its completed run page
+  - name: run weather_fixture.airway.yml and land on its completed run page
     tags: [airway, pipelines, compile-boundary, critical]
     steps:
       # The pipeline landing page's Run button. No data-testid on this
@@ -101,9 +106,9 @@ cases:
       # emptyView()), so gating on the badge alone would risk a step that
       # passes before real events ever arrive. The navigation gate above
       # already proves the run was accepted; this one proves it actually
-      # finished. Budget generous — Open-Meteo + normalize + in-memory load
-      # for two resources measured well under a minute end to end, but this
-      # leaves headroom for a cold DNS/TLS handshake to the public API.
+      # finished. Budget generous: two loopback fetches + normalize +
+      # in-memory load for two resources take seconds, and the headroom is
+      # for a slow CI runner, not for the network.
       - wait_for: "selector:text=done;timeout_ms=180000"
 
       # THE LINEAGE GATE: the regression check for a race in LineageGraph.
@@ -140,7 +145,7 @@ cases:
 
       - judge: |
           The page is a completed Airway pipeline run for
-          pipelines/weather.airway.yml: the header shows the pipeline path
+          pipelines/weather_fixture.airway.yml: the header shows the pipeline path
           and a status badge reading "done" (not "running", "failed",
           "cancelled", or "completed with errors"), a three-segment
           Extract / Normalize / Load phase bar, and a Lineage tab showing
