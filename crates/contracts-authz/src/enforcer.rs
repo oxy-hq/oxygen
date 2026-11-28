@@ -2,8 +2,9 @@
 //!
 //! `oxy-server-authz` implements it (`oxy_server_authz::enforcer`), and the
 //! host holds the one implementation on `AppState` as an `Arc<dyn
-//! AuthzEnforcer>`. A domain that enforces through this trait needs neither
-//! `oxy-server-authz` nor `oxy-auth`.
+//! AuthzEnforcer>`; every [`Caller`] carries one too ([`Caller::authz`]), so code
+//! that holds a caller but no `AppState` reaches it. A domain that enforces
+//! through this trait needs neither `oxy-server-authz` nor `oxy-auth`.
 //!
 //! **The port adds no decision.** Each method is one existing
 //! `oxy-server-authz` function, under its own name, so a call site reads the
@@ -20,9 +21,12 @@
 //! | [`AuthzEnforcer::platform_standing_checked`] | `globals::platform_standing_checked` |
 //! | [`AuthzEnforcer::invalidate_admin_cache`] | `globals::invalidate_admin_cache` |
 //! | [`AuthzEnforcer::partner_grants_app_access`] | `partner_authz::partner_grants_app_access` |
+//! | [`AuthzEnforcer::partner_reach`] | `partner_authz::partner_reach` |
 //! | [`AuthzEnforcer::may_act_as`] | `assume_authority::may_act_as` |
 //! | [`AuthzEnforcer::is_session_live`] | `assume_liveness::is_session_live` |
 //! | [`AuthzEnforcer::live_assumed_org_ids`] | `assume_liveness::live_assumed_org_ids` |
+//! | [`AuthzEnforcer::request_facts`] | `request_facts` (over the request's extensions) |
+//! | [`AuthzEnforcer::may_preview`] | `role_guards::may_preview` (over the request's extensions) |
 //!
 //! So the rule holds through the port: a decision is `existing_allow &&
 //! allows(..)`. [`AuthzEnforcer::enforce_for`] is that conjunction; the facts
@@ -31,11 +35,18 @@
 //! a caller passes as `existing_allow`. No method answers "allowed" from
 //! anything but those.
 //!
+//! **Two methods take no database.** [`AuthzEnforcer::request_facts`] and
+//! [`AuthzEnforcer::may_preview`] read the request's extensions, and open their
+//! own connection inside the implementation, as the `Parts` functions they
+//! delegate to always have: `request_facts` answers a memoized read without
+//! connecting at all, and taking a handle would change that.
+//!
 //! **Unknown is not "no".** The facts reads answer `None` when the facts could
 //! not be read, and the `_checked` reads answer `Err`, exactly as the functions
 //! they delegate to; each caller still decides what unknown costs it.
 
 use async_trait::async_trait;
+use http::Extensions;
 use oxy_authz::{Action, Cap, PrincipalFacts, Resource};
 use sea_orm::DatabaseConnection;
 use uuid::Uuid;
@@ -43,6 +54,7 @@ use uuid::Uuid;
 use crate::assume::ActingAs;
 use crate::caller::Caller;
 use crate::error::AuthzError;
+use crate::partner::PartnerReach;
 use crate::platform::{Checked, PlatformFlags};
 
 /// One ring to enforce: the arguments `oxy_server_authz::enforce_for` takes
@@ -127,6 +139,22 @@ pub trait AuthzEnforcer: Send + Sync {
         org_id: Uuid,
     ) -> bool;
 
+    /// The reach of the partner that manages `org_id`, for `cap`: does its
+    /// managed set (as the credential covers it) hold the org, and does its
+    /// ceiling hold the capability? `None` when no partner manages the org or
+    /// the caller resolves no scope in it.
+    ///
+    /// The ceiling capability only, as publish authorization reads it: **not**
+    /// the partner ring, which also applies the token's rules (see
+    /// [`PartnerReach`]). Fails closed.
+    async fn partner_reach(
+        &self,
+        db: &DatabaseConnection,
+        caller: &Caller,
+        org_id: Uuid,
+        cap: Cap,
+    ) -> Option<PartnerReach>;
+
     /// **Who may act as an org**: staff whose grant reaches it with
     /// `ManageOrgSettings`, or a partner assigned the client with
     /// `develop_apps`. Independent of any session; ask
@@ -146,4 +174,15 @@ pub trait AuthzEnforcer: Send + Sync {
     /// Every org the caller's credential holds a live assume-role session for.
     /// Fails closed (empty).
     async fn live_assumed_org_ids(&self, db: &DatabaseConnection, caller: &Caller) -> Vec<Uuid>;
+
+    /// The facts of the request these extensions belong to, loaded once and
+    /// memoized there, capped by the credential the request arrived with.
+    /// `None` means **unknown** (no authenticated user, no connection, a failed
+    /// lookup), never "no standing"; only a successful load is memoized.
+    async fn request_facts(&self, extensions: &mut Extensions) -> Option<PrincipalFacts>;
+
+    /// May the caller of this request preview the workspace in its extensions
+    /// (`Action::WorkspacePreview`, over the shipped staff door)? `false` with
+    /// no workspace, no org, no caller or no database: previews fail closed.
+    async fn may_preview(&self, extensions: &mut Extensions) -> bool;
 }

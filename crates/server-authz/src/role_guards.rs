@@ -686,38 +686,10 @@ async fn may_provision(parts: &mut Parts, ctx: &OrgContext) -> bool {
 
 /// The [`WorkspacePreviewer`] decision as a boolean, for the request middleware
 /// that decides whether to honour a `?branch=` preview pin. One function, so the
-/// API and the pin can never disagree about who may preview.
-///
-/// `existing_allow` is the shipped staff door — what the `/admin` console grants
-/// today (`OXY_OWNER` or a platform-grant row, any role). The ring then subtracts
-/// what that door is too coarse to see: an App Operator (apps and nothing else)
-/// and a grant whose scope does not reach this org. A workspace with no org has
-/// no tenant to be staff *in*, so it is never previewable.
+/// API and the pin can never disagree about who may preview. The decision is
+/// `preview_guard::may_preview_in`, over the request's extensions.
 pub async fn may_preview(parts: &mut Parts) -> bool {
-    let Some(ws) = parts.extensions.get::<entity::workspaces::Model>().cloned() else {
-        return false;
-    };
-    let Some(org_id) = ws.org_id else {
-        return false;
-    };
-    let Some(caller) = crate::Caller::from_extensions(&parts.extensions) else {
-        return false;
-    };
-    let legacy = match oxy_platform::db::establish_connection().await {
-        Ok(db) => crate::globals::platform_standing(&db, &caller)
-            .await
-            .is_staff(),
-        // No database, no standing we can vouch for: previews fail closed.
-        Err(_) => false,
-    };
-    authz::enforce_guard(
-        parts,
-        "guard.workspace_previewer",
-        authz::Action::WorkspacePreview,
-        authz::Resource::workspace(ws.id, org_id),
-        legacy,
-    )
-    .await
+    crate::preview_guard::may_preview_in(&mut parts.extensions).await
 }
 
 #[cfg(test)]

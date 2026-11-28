@@ -23,6 +23,11 @@ chrono = { workspace = true }
 uuid = { workspace = true }
 async-trait = { workspace = true }
 thiserror = { workspace = true }
+# `AuthzEnforcer::request_facts` / `may_preview` read the request's extensions.
+http = { workspace = true }
+# `EffectiveWorkspaceRole`'s extractors: the orphan rule keeps them with the type,
+# and the writer and its readers must share the type (C3a).
+axum = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [lints]

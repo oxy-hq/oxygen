@@ -172,7 +172,7 @@ fn each_caller_door_has_exactly_its_pinned_files() {
         "\nThe files on a caller door changed:\n\n{}\n\n\
          A caller built from invented parts, or a grant memo written by hand, holds \
          whatever standing it claims. Build the request's caller with \
-         `contracts_authz::Caller::from_parts(oxy_auth::caller_parts(..))` (or \
+         `contracts_authz::Caller::from_parts(oxy_auth::caller_parts(..), authz)` (or \
          `oxy_server_authz::Caller::of`), and leave the memo to `globals`. If the new \
          site is one of those, add it to DOORS in \
          crates/guards/tests/integration/caller_has_pinned_constructors.rs with the \

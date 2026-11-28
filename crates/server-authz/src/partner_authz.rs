@@ -516,6 +516,10 @@ pub async fn assumed_partners(
     standings_for(db, partner_orgs).await
 }
 
+/// A partner's reach over one client for one capability, as publish reads it
+/// (the port's `partner_reach`). Its own module, `partner_reach`.
+pub use crate::partner_reach::partner_reach;
+
 /// The partner managing `org_id`, if any. `managed_org_id` is UNIQUE, so at most one.
 pub async fn partner_for_org(db: &DatabaseConnection, org_id: Uuid) -> Option<Uuid> {
     PartnerOrgs::find()

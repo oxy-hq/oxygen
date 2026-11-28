@@ -5,7 +5,7 @@
 //! mapping. `oxy_server_authz::Caller::of` builds its caller from it, and a
 //! domain that authenticates a request itself (the custom-app gate, say)
 //! builds the enforcement port's caller from it with
-//! `contracts_authz::Caller::from_parts(caller_parts(..))`. Moved here from
+//! `contracts_authz::Caller::from_parts(caller_parts(..), authz)`. Moved here from
 //! `oxy_server_authz::Caller::of` (C3a, 2026-11-28) with its body unchanged.
 
 use oxy_authz::{CallerAccount, CallerParts, CallerToken, StoredKind, UnixTime};

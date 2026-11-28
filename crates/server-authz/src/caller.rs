@@ -75,11 +75,15 @@ impl Caller {
     ///
     /// **The projection is authentication's** ([`oxy_auth::caller_parts`]);
     /// this is that projection made into the port's plain
-    /// [`contracts_authz::Caller`], and wrapped.
+    /// [`contracts_authz::Caller`], carrying this crate's enforcer
+    /// ([`crate::ServerAuthz`]), and wrapped. Every constructor here comes
+    /// through `of` or `without_credential`, so every caller this crate builds
+    /// carries the one implementation.
     pub fn of(user: &AuthenticatedUser, credential: Option<&CredentialContext>) -> Self {
-        Self(contracts_authz::Caller::from_parts(oxy_auth::caller_parts(
-            user, credential,
-        )))
+        Self(contracts_authz::Caller::from_parts(
+            oxy_auth::caller_parts(user, credential),
+            crate::enforcer(),
+        ))
     }
 
     /// The caller a request's user is: the user, with the key or token they
@@ -135,7 +139,11 @@ impl Caller {
     /// drops the token's narrowing. Take [`Caller`] as an extractor, or
     /// [`Caller::of`], instead.
     pub fn without_credential(user_id: Uuid, email: &str) -> Self {
-        Self(contracts_authz::Caller::without_credential(user_id, email))
+        Self(contracts_authz::Caller::without_credential(
+            user_id,
+            email,
+            crate::enforcer(),
+        ))
     }
 
     /// The port's view of this caller: the same values, for a call through

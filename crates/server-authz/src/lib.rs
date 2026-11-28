@@ -40,7 +40,9 @@ pub mod oxy_app_admin_guard;
 pub mod oxy_owner_guard;
 pub mod oxy_owner_or_app_admin_guard;
 pub mod partner_authz;
+mod partner_reach;
 pub mod platform_cap_guard;
+mod preview_guard;
 pub mod role_guards;
 pub mod staff;
 pub mod workspace_role;
@@ -48,6 +50,7 @@ pub mod workspace_role;
 #[cfg(test)]
 mod differential;
 
+use axum::http::Extensions;
 use axum::http::request::Parts;
 use uuid::Uuid;
 
@@ -67,7 +70,14 @@ use oxy_platform::db::establish_connection;
 /// Only a successful load is memoized, so a blip on one guard doesn't pin an unknown
 /// verdict onto every later guard in the same request.
 pub async fn request_facts(parts: &mut Parts) -> Option<PrincipalFacts> {
-    if let Some(facts) = parts.extensions.get::<PrincipalFacts>() {
+    request_facts_in(&mut parts.extensions).await
+}
+
+/// [`request_facts`] over the request's extensions, which is all it reads: what the
+/// enforcement port's `request_facts` delegates to, for a domain that holds the
+/// extensions but not this crate's `Parts`-taking guards.
+pub async fn request_facts_in(extensions: &mut Extensions) -> Option<PrincipalFacts> {
+    if let Some(facts) = extensions.get::<PrincipalFacts>() {
         return Some(facts.clone());
     }
     // The caller is the user AND the credential the request arrived with, so an
@@ -77,10 +87,10 @@ pub async fn request_facts(parts: &mut Parts) -> Option<PrincipalFacts> {
     // thing the loader reads an address for. `is_oxy_owner` refuses a blank
     // needle and `grant_of_email` short-circuits a blank key, so "" is the
     // established "no standing" value rather than a hole.
-    let caller = Caller::from_extensions(&parts.extensions)?;
+    let caller = Caller::from_extensions(extensions)?;
     let db = establish_connection().await.ok()?;
     let facts = loader::load_principal_facts(&db, &caller).await?;
-    parts.extensions.insert(facts.clone());
+    extensions.insert(facts.clone());
     Some(facts)
 }
 
@@ -105,7 +115,25 @@ pub async fn enforce_guard(
     resource: Resource,
     existing_allow: bool,
 ) -> bool {
-    match request_facts(parts).await {
+    enforce_guard_in(
+        &mut parts.extensions,
+        label,
+        action,
+        resource,
+        existing_allow,
+    )
+    .await
+}
+
+/// [`enforce_guard`] over the request's extensions, which is all it reads.
+pub async fn enforce_guard_in(
+    extensions: &mut Extensions,
+    label: &str,
+    action: Action,
+    resource: Resource,
+    existing_allow: bool,
+) -> bool {
+    match request_facts_in(extensions).await {
         Some(facts) => enforce(label, &facts, action, &resource, existing_allow),
         None => existing_allow,
     }

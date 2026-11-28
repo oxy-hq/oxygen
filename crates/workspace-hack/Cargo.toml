@@ -189,6 +189,7 @@ sqlx-postgres = { version = "0.9", default-features = false, features = ["any", 
 stable_deref_trait = { version = "1" }
 strum = { version = "0.28", features = ["derive"] }
 subtle = { version = "2", features = ["const-generics"] }
+sync_wrapper = { version = "1", default-features = false, features = ["futures"] }
 testcontainers = { version = "0.27", features = ["blocking", "http_wait", "reusable-containers"] }
 testcontainers-modules = { version = "0.15", features = ["clickhouse", "mysql", "postgres"] }
 thiserror = { version = "2" }
@@ -316,6 +317,7 @@ subtle = { version = "2", features = ["const-generics"] }
 syn-7b89eefb6aaa9bf3 = { package = "syn", version = "3", features = ["extra-traits", "fold", "full", "visit", "visit-mut"] }
 syn-dff4ba8e3ae991db = { package = "syn", version = "1", features = ["fold", "full"] }
 syn-f595c2ba2a3f28df = { package = "syn", version = "2", features = ["extra-traits", "full", "visit", "visit-mut"] }
+sync_wrapper = { version = "1", default-features = false, features = ["futures"] }
 thiserror = { version = "2" }
 time = { version = "0.3", features = ["local-offset", "macros", "serde-well-known"] }
 tinystr = { version = "0.8", features = ["zerovec"] }

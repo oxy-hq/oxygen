@@ -34,11 +34,20 @@ use oxy_authz::{
     AccountStanding, AppPublishGrant, CallerAccount, CallerParts, CallerToken, PlatformStanding,
     PrincipalFacts, RoleCeiling, SandboxAgentReach, TokenReach, UnixTime,
 };
+use std::sync::Arc;
+
 use uuid::Uuid;
 
+use crate::enforcer::AuthzEnforcer;
+use crate::enforcer_handle::EnforcerHandle;
 use crate::grant_memo::GrantMemo;
 
-/// The principal behind a request, as its credential presents them.
+/// The principal behind a request, as its credential presents them, and the
+/// enforcer to ask about them ([`Self::authz`]).
+///
+/// **Equality is by who the caller is.** Two callers built from the same parts
+/// compare equal whatever enforcer handle or grant memo each holds: neither is
+/// part of the principal.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Caller {
     pub user_id: Uuid,
@@ -61,12 +70,16 @@ pub struct Caller {
     /// its `OXY_SERVICE_TOKENS` entry gives it, which the platform-standing
     /// read takes instead of the grant table.
     service: Option<PlatformStanding>,
+    /// The enforcer every authorization read about this caller goes through.
+    /// Set by whoever built the caller; never part of who the caller is.
+    authz: EnforcerHandle,
 }
 
 impl Caller {
-    /// The caller the projection from an authenticated request built. See the
-    /// module doc: never build one from invented parts.
-    pub fn from_parts(parts: CallerParts) -> Self {
+    /// The caller the projection from an authenticated request built, and the
+    /// enforcer to ask about it. See the module doc: never build one from
+    /// invented parts.
+    pub fn from_parts(parts: CallerParts, authz: Arc<dyn AuthzEnforcer>) -> Self {
         Self {
             user_id: parts.user_id,
             email: parts.email,
@@ -75,7 +88,14 @@ impl Caller {
             app_publish: parts.app_publish,
             grant_memo: GrantMemo::default(),
             service: parts.service,
+            authz: EnforcerHandle(authz),
         }
+    }
+
+    /// The enforcer this caller was built with: what a domain holding a caller
+    /// enforces through, so it needs no `AppState` and no process global.
+    pub fn authz(&self) -> &Arc<dyn AuthzEnforcer> {
+        &self.authz.0
     }
 
     /// A principal with **no credential in hand**: code acting for a user
@@ -83,12 +103,15 @@ impl Caller {
     ///
     /// Never build this inside a request to stand in for the requester: it
     /// drops the token's narrowing.
-    pub fn without_credential(user_id: Uuid, email: &str) -> Self {
-        Self::from_parts(CallerParts {
-            user_id,
-            email: email.to_string(),
-            ..CallerParts::default()
-        })
+    pub fn without_credential(user_id: Uuid, email: &str, authz: Arc<dyn AuthzEnforcer>) -> Self {
+        Self::from_parts(
+            CallerParts {
+                user_id,
+                email: email.to_string(),
+                ..CallerParts::default()
+            },
+            authz,
+        )
     }
 
     /// The slot the platform-standing read keeps this request's uncached

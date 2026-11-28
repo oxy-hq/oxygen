@@ -9577,13 +9577,13 @@ value = 16.0
 path = "crates/contracts-authz/src/caller.rs"
 qualified = "Caller"
 metric = "nom"
-value = 43.0
+value = 44.0
 
 [[entry]]
 path = "crates/contracts-authz/src/caller.rs"
 qualified = "Caller"
 metric = "wmc"
-value = 61.0
+value = 62.0
 
 [[entry]]
 path = "crates/server-authz/src/differential.rs"
