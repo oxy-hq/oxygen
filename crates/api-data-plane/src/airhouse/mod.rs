@@ -1,4 +1,5 @@
-//! Axum HTTP routes for per-user Airhouse credential access.
+//! Axum HTTP routes for per-user Airhouse credential access. Was
+//! `airhouse::api` (the `rest` feature) until it left that crate.
 //!
 //! Routes (all under the host's auth middleware):
 //! - `GET    /airhouse/version`               — the running Airhouse
@@ -15,7 +16,6 @@
 //! - `DELETE /airhouse/me/tokens/:username`   — revoke a single ephemeral
 //!   credential the caller previously minted.
 
-pub mod admin;
 pub mod handlers;
 
 use axum::Router;
@@ -24,7 +24,7 @@ use axum::routing::{delete, get, post};
 /// Build the airhouse `/airhouse/me/*` route subtree.
 ///
 /// The router is generic over the host application's state type — handlers
-/// don't depend on app state. Mount with `app_router.merge(airhouse::api::router())`.
+/// don't depend on app state. Mount with `app_router.merge(oxy_api_data_plane::airhouse::router())`.
 pub fn router<S>() -> Router<S>
 where
     S: Clone + Send + Sync + 'static,

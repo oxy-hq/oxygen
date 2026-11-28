@@ -1,9 +1,10 @@
 //! Scope fence for the admin Airhouse surface: the fleet, provisioning, and
 //! the service-account rotation.
 //!
-//! A fenced shim: the handlers live in the
-//! `airhouse` crate, which sits below `oxy-app` and cannot read `app_admins`,
-//! so the routes are declared here and each one is fenced before delegating.
+//! A fenced shim: the handlers live in [`inner`] (they were the `airhouse`
+//! crate's `api::admin`, which sat below `oxy-app` and could not read
+//! `app_admins`), so the routes are declared here and each one is fenced
+//! before delegating.
 //! `cap(..)` decides on `Resource::platform()` — a nil org — so on its own it
 //! lets a `global_admin` bounded to two orgs act on every workspace on the
 //! deployment.
@@ -24,7 +25,9 @@ use oxy_app_core::audit;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use uuid::Uuid;
 
-use airhouse::api::admin as inner;
+/// The handlers this file fences: the fleet read, provisioning and the
+/// service-account rotation. Out of the `airhouse` crate in crate-depth B2.
+pub mod inner;
 
 use oxy_server_authz::staff::scope;
 
@@ -126,7 +129,7 @@ pub async fn provision(
         // it was created under, which need not be the derived one. The name
         // that ended up in force is the target label above.
         .metadata(serde_json::json!({
-            "requested_tenant_name": airhouse::api::admin::tenant_name_for_workspace(workspace_id),
+            "requested_tenant_name": inner::tenant_name_for_workspace(workspace_id),
         }));
     let entry = match org_id {
         Some(org) => entry.org(org),

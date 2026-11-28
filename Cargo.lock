@@ -663,14 +663,12 @@ dependencies = [
  "agentic-core",
  "async-stream",
  "async-trait",
- "axum",
  "base64 0.23.1",
  "chrono",
  "duckdb",
  "entity",
  "futures",
  "hex",
- "oxy-auth",
  "oxy-migration-tolerance",
  "oxy-platform",
  "oxy-shared",
@@ -9611,6 +9609,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxy-api-data-plane"
+version = "0.5.162"
+dependencies = [
+ "airhouse",
+ "axum",
+ "chrono",
+ "entity",
+ "oxy-auth",
+ "oxy-platform",
+ "sea-orm",
+ "serde",
+ "tracing",
+ "uuid",
+ "workspace-hack",
+]
+
+[[package]]
 name = "oxy-api-documents"
 version = "0.5.162"
 dependencies = [
@@ -11101,6 +11116,7 @@ dependencies = [
  "oxy-api-automations",
  "oxy-api-billing",
  "oxy-api-custom-apps",
+ "oxy-api-data-plane",
  "oxy-api-documents",
  "oxy-api-eval",
  "oxy-api-experiment",
@@ -11445,6 +11461,7 @@ dependencies = [
  "migration",
  "oxy",
  "oxy-airlayer-compat",
+ "oxy-api-data-plane",
  "oxy-app-core",
  "oxy-auth",
  "oxy-authz",

@@ -6,28 +6,34 @@
 //!
 //! Idempotent: safe to call on every boot. Uses `INSERT ... ON CONFLICT DO
 //! NOTHING` semantics by checking existence before inserting.
+//!
+//! Was `airhouse::local_seed` until crate-depth B2: it is the only thing in
+//! that client that needed `oxy-auth` (the guest user's `Identity`). Here, not
+//! in `dev/seed`, because `serve` calls it on every local-mode boot and `dev`
+//! is compiled only with the `dev-tools` feature, which the release build
+//! drops.
 
 use chrono::Utc;
 use entity::org_members::{self, OrgRole};
 use entity::organizations;
 use entity::prelude::{OrgMembers, Organizations, Workspaces};
 use entity::workspaces::{self, WorkspaceStatus};
+use oxy::database::client::establish_connection;
 use oxy_auth::types::Identity;
 use oxy_auth::user::{LOCAL_GUEST_EMAIL, UserService};
-use oxy_platform::db::establish_connection;
 use oxy_shared::errors::OxyError;
 use sea_orm::{ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilter};
 use uuid::Uuid;
 
-use crate::config::LOCAL_ORG_ID;
+use airhouse::config::LOCAL_ORG_ID;
 
 /// Ensure the local guest user, the nil-UUID org, the local-mode workspace,
 /// and the Owner membership row all exist. Called once on local-mode startup
 /// before the HTTP server accepts requests.
 ///
 /// `local_workspace_id` is the well-known nil-UUID workspace id used by the
-/// host's serve-mode (mirrors `LOCAL_ORG_ID`). Passed in so this crate does
-/// not depend on the host's serve-mode constants.
+/// host's serve-mode (mirrors `LOCAL_ORG_ID`). Still passed in, as it was
+/// when this lived in the `airhouse` crate, so the move changed no signature.
 pub async fn ensure_local_org_seeded(local_workspace_id: Uuid) -> Result<(), OxyError> {
     // 1. Get-or-create the local guest user.
     let user = UserService::get_or_create_user(

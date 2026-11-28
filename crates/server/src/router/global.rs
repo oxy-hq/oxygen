@@ -55,7 +55,7 @@ pub(super) fn build_global_routes(
         // no org gate: self-scoped, and a frontline worker holds no org
         // membership by design.
         .merge_undeclared(
-            airhouse::api::router::<AppState>(),
+            oxy_api_data_plane::airhouse::router::<AppState>(),
             "airhouse provisioning is per-user and per-org, never per-workspace",
         )
         // Per-org OLTP status. Belongs here, not only in the local-mode router:

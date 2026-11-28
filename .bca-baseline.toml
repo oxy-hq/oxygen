@@ -2647,7 +2647,7 @@ metric = "nargs"
 value = 6.0
 
 [[entry]]
-path = "crates/airhouse/src/api/admin.rs"
+path = "crates/api-tenancy/src/admin/airhouse/inner.rs"
 qualified = "list_fleet"
 metric = "abc"
 value = 79.01898506055365
@@ -2737,7 +2737,7 @@ metric = "abc"
 value = 52.1344415909483
 
 [[entry]]
-path = "crates/airhouse/src/local_seed.rs"
+path = "crates/server/src/commands/local_seed.rs"
 qualified = "ensure_local_org_seeded"
 metric = "abc"
 value = 74.30343195303969

@@ -29,13 +29,13 @@ use serde::{Deserialize, Serialize};
 use tracing::{error, instrument, warn};
 use uuid::Uuid;
 
-use crate::admin::CatalogIndexesResponse;
-use crate::airhouse_role_for;
-use crate::broker::DEFAULT_EXTERNAL_TTL;
-use crate::config::{admin_client, provisioner_for, token_broker, wire_endpoint};
-use crate::entity::Tenants as AirhouseTenants;
-use crate::entity::tenants::{self as airhouse_tenants, TenantStatus};
-use crate::provisioner::ProvisionerError;
+use ::airhouse::admin::CatalogIndexesResponse;
+use ::airhouse::airhouse_role_for;
+use ::airhouse::broker::DEFAULT_EXTERNAL_TTL;
+use ::airhouse::config::{admin_client, provisioner_for, token_broker, wire_endpoint};
+use ::airhouse::entity::Tenants as AirhouseTenants;
+use ::airhouse::entity::tenants::{self as airhouse_tenants, TenantStatus};
+use ::airhouse::provisioner::ProvisionerError;
 
 /// Bridges the entity-level `OrgRole` to the workspace-level `WorkspaceRole`
 /// the broker's `airhouse_role_for` mapping accepts. Mirrors the trivial

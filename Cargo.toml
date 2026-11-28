@@ -37,6 +37,7 @@ members = [
   "crates/api-workspaces",
   "crates/api-semantic",
   "crates/api-eval",
+  "crates/api-data-plane",
   "crates/cli-shim",
   "crates/app-core",
   "crates/auth",

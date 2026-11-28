@@ -244,7 +244,8 @@ const UNSCANNED_ROUTE_FILES: &[&str] = &[
     // `oxy-oltp`'s router, merged at the protected-tree root. Wiring it
     // into SOURCE_DIRS needs a seed, and a seed resolves a builder by
     // module-path SUFFIX — this crate's entry point is `api::router`,
-    // which collides with `airhouse`'s and `cameras`'s. The walker has no
+    // which collides with `cameras`'s (and with `airhouse`'s, until its router
+    // left for `oxy-api-data-plane`). The walker has no
     // way to say "the one in crates/oltp", so the tree indexes and
     // contributes nothing, which trips `every_scanned_tree_contributes_routes`
     // instead. Listed here rather than half-wired: `oxyc routes` does

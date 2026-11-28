@@ -4,7 +4,7 @@
 //! the deployment's `OXY_DATABASE_URL`, sealing key and Airhouse admin token on
 //! the operator's laptop. It is now a route (`oxyc airhouse rotate-sa`), so the
 //! person needs a token and the server holds the secrets. The work is the same
-//! call, [`TenantProvisioner::rotate_service_account`](crate::TenantProvisioner).
+//! call, [`TenantProvisioner::rotate_service_account`](airhouse::TenantProvisioner).
 //!
 //! Like [`super::provision`], there is no `router()` here: the route is
 //! declared by `oxy_api_tenancy::admin::airhouse`, which fences and audits it
@@ -17,13 +17,13 @@
 
 use axum::extract::{Json, Path};
 use axum::http::StatusCode;
+use oxy::database::client::establish_connection;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
-use oxy_platform::db::establish_connection;
 use serde::Serialize;
 use tracing::{info, instrument};
 use uuid::Uuid;
 
-use crate::provisioner::{ProvisionerError, RotatedServiceAccount};
+use ::airhouse::provisioner::{ProvisionerError, RotatedServiceAccount};
 
 /// What a rotation answers. Ids and a time, never a bearer: the new one is
 /// sealed onto the tenants row and nowhere else.
@@ -61,7 +61,7 @@ pub async fn rotate_service_account(
 
     // Airhouse not configured on this deployment is a normal state, not a
     // fault, so 503, as `provision` answers.
-    let provisioner = crate::config::provisioner_for(db).ok_or((
+    let provisioner = ::airhouse::config::provisioner_for(db).ok_or((
         StatusCode::SERVICE_UNAVAILABLE,
         "Airhouse is not configured on this deployment".to_string(),
     ))?;
@@ -99,7 +99,7 @@ fn status_for(e: &ProvisionerError) -> StatusCode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::AirhouseError;
+    use ::airhouse::AirhouseError;
 
     #[test]
     fn each_failure_answers_the_status_an_operator_acts_on() {

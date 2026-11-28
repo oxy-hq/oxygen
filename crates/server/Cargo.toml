@@ -125,6 +125,9 @@ oxy-api-semantic = { path = "../api-semantic" }
 # The eval context: the eval-run routes and `eval_run` task (`oxyc evals run`),
 # in every build, and `oxy dev test`, registered only with `dev-tools` (S10).
 oxy-api-eval = { path = "../api-eval" }
+# The data-plane surface: `/airhouse/version` and `/airhouse/me/*`, merged at the
+# root of both the cloud and local trees (`router/{global,protected}.rs`).
+oxy-api-data-plane = { path = "../api-data-plane" }
 oxy-cli-shim = { path = "../cli-shim" }
 oxy = { workspace = true }
 oxy-observability = { workspace = true }
@@ -138,7 +141,7 @@ agentic-http = { workspace = true }
 agentic-pipeline = { workspace = true }
 # `import`: `oxy dev seed` loads the demo workspace's data files into its
 # tenant (`src/dev/seed/seed_airhouse.rs`; oxy-app's until decompose SD).
-airhouse = { workspace = true, features = ["connector", "rest", "sql-rules", "preview-sql", "import"] }
+airhouse = { workspace = true, features = ["connector", "sql-rules", "preview-sql", "import"] }
 axum-server = { workspace = true }
 clap = { workspace = true, features = ["derive", "env"] }
 include_dir = { workspace = true }

@@ -268,7 +268,7 @@ pub(super) async fn resolve_caller_org(
     user: &AuthenticatedUser,
 ) -> Result<Uuid, StatusCode> {
     // Local mode has a single implicit org at the nil UUID and no membership
-    // rows to check. Mirrors `airhouse::api::handlers::resolve_caller_role`.
+    // rows to check. Mirrors `oxy_api_data_plane::airhouse::handlers::resolve_caller_role`.
     if workspace_id.is_nil() {
         return Ok(Uuid::nil());
     }

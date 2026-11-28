@@ -1,0 +1,28 @@
+[package]
+name = "oxy-api-data-plane"
+version.workspace = true
+authors.workspace = true
+# Editing this crate re-runs oxy-route-catalog's build script (it watches this
+# tree; see crates/route-catalog/build_route_catalog.rs) and rebuilds only
+# oxy-server, which mounts it.
+description = "The data-plane HTTP surface: a member's own Airhouse warehouse (`/airhouse/version`, `/airhouse/me/*`), mounted by oxy-server. Out of the `airhouse` crate so that T1 client no longer depends on oxy-auth (internal-docs/crate-tiers.md)"
+documentation.workspace = true
+publish.workspace = true
+edition.workspace = true
+
+[dependencies]
+# The client, broker, provisioner and tenants entity the handlers drive.
+airhouse = { workspace = true, features = ["admin"] }
+oxy-auth = { workspace = true }      # AuthenticatedUserExtractor
+oxy-platform = { workspace = true }  # establish_connection
+entity = { workspace = true }        # org / workspace membership rows
+axum = { workspace = true }
+sea-orm = { workspace = true }
+serde = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }      # a minted credential's expires_at
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[lints]
+workspace = true

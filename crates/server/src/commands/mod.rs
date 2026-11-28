@@ -5,6 +5,9 @@
 //! what they took from `oxy-app`, lists nothing since decompose BID (2026-11-25).
 
 pub mod args;
+// The local-mode org/workspace/guest seed `serve` runs on boot (was
+// `airhouse::local_seed`). Not under `dev`: that is `dev-tools`-only.
+mod local_seed;
 pub mod serve;
 pub(crate) mod serve_background;
 mod start;

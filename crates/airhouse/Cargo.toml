@@ -1,6 +1,6 @@
 [package]
 name = "airhouse"
-description = "Airhouse integration: pgwire connector + admin client + tenant/user provisioners + REST"
+description = "Airhouse integration: pgwire connector + admin client + tenant/user provisioners (the HTTP routes are oxy-api-data-plane's)"
 version.workspace = true
 documentation.workspace = true
 publish.workspace = true
@@ -41,12 +41,11 @@ credentials = [
     "dep:uuid",
     "dep:tracing",
 ]
-# Tenant + user provisioners + admin HTTP client + env-driven config + local
-# seeder. Implies `credentials`. Adds `oxy-auth` (used by `local_seed` for
-# the `Identity` type).
+# Tenant + user provisioners + admin HTTP client + env-driven config. Implies
+# `credentials`. No `oxy-auth`: the local-mode seeder that needed its
+# `Identity` went up to oxy-server (`commands/local_seed.rs`).
 admin = [
     "credentials",
-    "dep:oxy-auth",
     "dep:reqwest",
     "dep:thiserror",
     "dep:base64",
@@ -70,8 +69,6 @@ tenant = [
     "dep:thiserror",
     "dep:tracing",
 ]
-# Axum HTTP handlers for `/airhouse/me/*`. Always implies `admin`.
-rest = ["admin", "dep:axum"]
 # Load a CSV or Parquet file into a table in a workspace's tenant (`import`):
 # DuckDB reads the file in-process, the rows go over the pgwire connection.
 import = ["admin", "connector", "dep:duckdb", "dep:slugify"]
@@ -102,7 +99,6 @@ futures = { workspace = true, optional = true }
 # Admin feature deps (platform-aware)
 oxy-platform = { workspace = true, optional = true }
 oxy-shared = { workspace = true, optional = true }
-oxy-auth = { workspace = true, optional = true }
 entity = { workspace = true, optional = true }
 sea-orm = { workspace = true, optional = true }
 sea-orm-migration = { workspace = true, optional = true }
@@ -115,9 +111,6 @@ rand = { workspace = true, optional = true }
 # import feature deps
 duckdb = { workspace = true, optional = true }
 slugify = { workspace = true, optional = true }
-
-# REST feature deps
-axum = { workspace = true, optional = true }
 
 # sql-rules feature deps
 sqlparser = { workspace = true, optional = true, features = ["visitor"] }

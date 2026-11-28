@@ -1,6 +1,6 @@
 //! Local-mode seeding for the per-org OLTP POC.
 //!
-//! Mirrors `airhouse::local_seed`, which seeds the rows the provision flow needs
+//! Mirrors `oxy-server`'s `commands::local_seed` (was `airhouse::local_seed`), which seeds the rows the provision flow needs
 //! so local mode works untouched. This one goes a step further and produces a
 //! **real, queryable Postgres**: the demo runs the same DDL generators as
 //! production ([`crate::platform`], [`crate::schema`]), so what you query in the

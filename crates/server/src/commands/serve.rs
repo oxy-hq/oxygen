@@ -7,7 +7,7 @@ use oxy::{
     state_dir::get_state_dir,
     theme::StyledText,
 };
-use oxy_app_core::serve_mode::ServeMode;
+use oxy_app_core::serve_mode::{LOCAL_WORKSPACE_ID, ServeMode};
 use oxy_shared::errors::OxyError;
 use std::future::IntoFuture;
 use std::net::SocketAddr;
@@ -245,9 +245,7 @@ pub async fn start_server_and_web_app(
         // Airhouse provision flow works without a real org picker. Best-effort:
         // failures are logged but don't block startup (Airhouse may not even
         // be configured).
-        if let Err(e) =
-            airhouse::ensure_local_org_seeded(oxy_app_core::serve_mode::LOCAL_WORKSPACE_ID).await
-        {
+        if let Err(e) = super::local_seed::ensure_local_org_seeded(LOCAL_WORKSPACE_ID).await {
             tracing::warn!("local-mode org seeding failed: {e}");
         }
         ServeMode::Local

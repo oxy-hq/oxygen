@@ -98,7 +98,9 @@ const ALLOWED: &[(&str, &str)] = &[
          invalidation) and renames only the display `name`, never the slug",
     ),
     (
-        "airhouse/src/local_seed.rs",
+        // Was `airhouse/src/local_seed.rs` until crate-depth B2. Not under
+        // `server/src/dev/seed/` (SEED_PREFIXES): `serve` runs it on boot.
+        "server/src/commands/local_seed.rs",
         "creates the nil-UUID local-mode org only if it is missing — a miss is \
          never cached, and it never updates a slug or deletes a row",
     ),

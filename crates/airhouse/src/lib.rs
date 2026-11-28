@@ -13,12 +13,12 @@
 //!   `DatabaseType::AirhouseManaged` config errors and run airhouse
 //!   migrations on startup.
 //! - **`admin`** feature — implies `credentials`. Adds the admin HTTP client
-//!   (`AirhouseAdminClient`), tenant provisioner, SA-backed token broker,
-//!   env-driven config loader, and the local-mode seeder. Adds `oxy-auth`
-//!   (used by the seeder for the `Identity` type).
-//! - **`rest`** feature — Axum handlers for
-//!   `/airhouse/me/{connection,credentials,provision,tokens/:username}`.
-//!   Requires `admin`.
+//!   (`AirhouseAdminClient`), tenant provisioner, SA-backed token broker and
+//!   env-driven config loader.
+//!
+//! No HTTP: the `/airhouse/me/*` routes are `oxy-api-data-plane`'s and the
+//! staff console's handlers are `oxy-api-tenancy`'s, and the local-mode seeder
+//! is `oxy-server`'s, so this client does not depend on `oxy-auth`.
 //! - **`sql-rules`** feature — what SQL a custom app may send to its own
 //!   schema (`sql_rules`).
 //! - **`import`** feature — implies `admin` and `connector`. Loads a CSV or
@@ -81,9 +81,6 @@ pub mod broker;
 pub mod config;
 
 #[cfg(feature = "admin")]
-pub mod local_seed;
-
-#[cfg(feature = "admin")]
 pub mod provisioner;
 
 #[cfg(feature = "admin")]
@@ -104,9 +101,6 @@ pub mod tenant;
 /// Load a CSV or Parquet file into a table in a workspace's tenant.
 #[cfg(feature = "import")]
 pub mod import;
-
-#[cfg(feature = "rest")]
-pub mod api;
 
 // ── Re-exports ────────────────────────────────────────────────────────────────
 
@@ -135,9 +129,6 @@ pub use config::{
 
 #[cfg(feature = "admin")]
 pub use post_provision::{HookError, PostProvisionHook, register_post_provision_hook};
-
-#[cfg(feature = "admin")]
-pub use local_seed::ensure_local_org_seeded;
 
 #[cfg(feature = "admin")]
 pub use provisioner::{

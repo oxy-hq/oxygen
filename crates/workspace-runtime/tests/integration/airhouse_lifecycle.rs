@@ -20,7 +20,6 @@
 //! Run with:
 //!   cargo nextest run -p oxy-workspace-runtime --test integration -E 'test(airhouse_lifecycle)'
 
-use airhouse::api::handlers as airhouse_me;
 use airhouse::entity::Tenants as AirhouseTenants;
 use airhouse::entity::tenants as airhouse_tenants;
 use airhouse::{AirhouseAdminClient, TenantProvisioner};
@@ -37,6 +36,7 @@ use entity::org_members::{self, OrgRole};
 use entity::organizations;
 use entity::users::{self, UserStatus};
 use entity::workspaces::{self, WorkspaceStatus};
+use oxy_api_data_plane::airhouse::handlers as airhouse_me;
 use oxy_auth::types::AuthenticatedUser;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter,

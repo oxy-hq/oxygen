@@ -134,8 +134,10 @@ oxy-cameras = { workspace = true }
 url = { workspace = true }
 # R-b..R-d add the dev-dependencies their moved tests name, in the PR that
 # moves them.
-# `airhouse_lifecycle` mounts the `/airhouse/me/*` handlers (`rest`).
-airhouse = { workspace = true, features = ["rest"] }
+# `airhouse_lifecycle` mounts the `/airhouse/me/*` handlers, which are
+# `oxy-api-data-plane`'s (out of airhouse's old `rest` feature). A dev-dependency
+# only, so the T3 -> T3 edge is exempt from the tier check.
+oxy-api-data-plane = { path = "../api-data-plane" }
 # The broker and provisioner tests decode the tokens they mint.
 base64 = { workspace = true, features = ["std"] }
 # `airhouse_pool_poison` parses the pgwire DSN it poisons.

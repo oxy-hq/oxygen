@@ -13,17 +13,23 @@
 //! declared by `oxy_api_tenancy::admin::airhouse`, which fences each one
 //! before delegating. The capability layer at the mount decides *whether you
 //! are staff*; only a handler can decide *which orgs you reach*.
+//!
+//! Was `airhouse::api::admin` until crate-depth B2 took the HTTP handlers out
+//! of the `airhouse` client (a T1 crate, which may not depend on `oxy-auth`).
+//! It lives beside its fence because the fence is its only caller: in the new
+//! `oxy-api-data-plane` it would have made this crate depend on a sibling
+//! surface, a T3 -> T3 edge.
 
 use axum::extract::{Json, Path};
 use axum::http::StatusCode;
+use oxy::database::client::establish_connection;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
-use oxy_platform::db::establish_connection;
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde::Serialize;
 use tracing::{error, info, instrument};
 use uuid::Uuid;
 
-use crate::entity::tenants::Entity as AirhouseTenants;
+use ::airhouse::entity::tenants::Entity as AirhouseTenants;
 
 /// `POST /admin/workspaces/{workspace_id}/airhouse/rotate-sa`, the bearer-leak
 /// response. Its own file: this one is the fleet and provisioning.
@@ -156,7 +162,7 @@ pub struct AirhouseFleet {
 fn row_from(
     workspace: &entity::workspaces::Model,
     org_name: String,
-    tenant: Option<&crate::entity::tenants::Model>,
+    tenant: Option<&::airhouse::entity::tenants::Model>,
 ) -> AirhouseFleetRow {
     match tenant {
         None => AirhouseFleetRow {
@@ -252,9 +258,9 @@ pub async fn list_fleet(
     // Provision button. That is worse than the absence this split was written
     // to fix — the row positively asserts the wrong state, and the action it
     // offers is one the operator has no reason to doubt.
-    let tenants: HashMap<Uuid, crate::entity::tenants::Model> = match scope {
+    let tenants: HashMap<Uuid, ::airhouse::entity::tenants::Model> = match scope {
         Some(orgs) => AirhouseTenants::find().filter(
-            crate::entity::tenants::Column::WorkspaceId.in_subquery(
+            ::airhouse::entity::tenants::Column::WorkspaceId.in_subquery(
                 sea_orm::sea_query::Query::select()
                     .column(entity::workspaces::Column::Id)
                     .from(entity::workspaces::Entity)
@@ -264,7 +270,7 @@ pub async fn list_fleet(
         ),
         None => AirhouseTenants::find(),
     }
-    .order_by_asc(crate::entity::tenants::Column::WorkspaceId)
+    .order_by_asc(::airhouse::entity::tenants::Column::WorkspaceId)
     .limit(MAX_FLEET_ROWS)
     .all(&db)
     .await
@@ -357,7 +363,7 @@ pub async fn provision(
 
     // Airhouse not configured on this deployment is a normal state, not a
     // fault, so 503 (try a deployment that has it) rather than 500.
-    let provisioner = crate::config::provisioner_for(db.clone()).ok_or((
+    let provisioner = ::airhouse::config::provisioner_for(db.clone()).ok_or((
         StatusCode::SERVICE_UNAVAILABLE,
         "Airhouse is not configured on this deployment".to_string(),
     ))?;
@@ -375,10 +381,10 @@ pub async fn provision(
         .map_err(|e| match e {
             // A name collision is the caller's problem to resolve, not an Oxy
             // fault — the member-facing handler already draws this line.
-            crate::provisioner::ProvisionerError::TenantNameTaken(_) => {
+            ::airhouse::provisioner::ProvisionerError::TenantNameTaken(_) => {
                 (StatusCode::CONFLICT, e.to_string())
             }
-            crate::provisioner::ProvisionerError::InvalidTenantName(_) => {
+            ::airhouse::provisioner::ProvisionerError::InvalidTenantName(_) => {
                 (StatusCode::UNPROCESSABLE_ENTITY, e.to_string())
             }
             other => (StatusCode::BAD_GATEWAY, other.to_string()),
@@ -390,7 +396,7 @@ pub async fn provision(
     // Airhouse API. Using a fleet scan as a single-row read gives back exactly
     // what the two-queries-not-N+1 shape below was for.
     let tenant = AirhouseTenants::find()
-        .filter(crate::entity::tenants::Column::WorkspaceId.eq(workspace_id))
+        .filter(::airhouse::entity::tenants::Column::WorkspaceId.eq(workspace_id))
         .one(&db)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
@@ -423,7 +429,7 @@ fn tenant_name_for(workspace: &entity::workspaces::Model) -> String {
 /// The same derivation, by id — so an audit entry can record the name that was
 /// attempted without loading the workspace again. Lives beside the provisioner,
 /// which provisions under it when a workspace is created.
-pub use crate::provisioner::tenant_name_for_workspace;
+pub use ::airhouse::provisioner::tenant_name_for_workspace;
 
 #[cfg(test)]
 mod fleet_page_tests {

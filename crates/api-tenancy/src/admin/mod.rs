@@ -12,9 +12,10 @@
 //! `admin::{oltp, airhouse}` (admin split, PR 4): `oltp` (an org's OLTP
 //! database, behind `PlatformOltp`) and `airhouse` (a workspace's Airhouse
 //! tenant, behind `PlatformAirhouse`), each its own section. Both are shims:
-//! the handlers live in `oxy-oltp` and `airhouse`, which cannot read
-//! `app_admins`, so the routes are declared here and each org- or
-//! workspace-keyed one is fenced before it delegates. Their routes, as the
+//! the handlers live in `oxy-oltp` and in `airhouse::inner` (the `airhouse`
+//! crate's until crate-depth B2), neither of which reads `app_admins`, so the
+//! routes are declared here and each org- or workspace-keyed one is fenced
+//! before it delegates. Their routes, as the
 //! console serves them:
 //!   - GET    /admin/airhouse
 //!   - POST   /admin/workspaces/{workspace_id}/airhouse/provision

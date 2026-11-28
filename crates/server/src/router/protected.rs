@@ -214,7 +214,7 @@ pub(super) fn build_local_protected_routes(
 
     let (router, decls, _) = root
         .merge_undeclared(
-            airhouse::api::router::<AppState>(),
+            oxy_api_data_plane::airhouse::router::<AppState>(),
             "airhouse provisioning is per-user and per-org, never per-workspace",
         )
         .merge_undeclared(

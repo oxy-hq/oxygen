@@ -67,6 +67,8 @@ web-app/src/pages/admin/AdminAirhouse/             @luong-komorebi @hotay
 # is July's (#2688). Tay backs up — he built the warehouse + connector, and the
 # connector (crates/agentic/connector/) stays his.
 crates/airhouse/                                   @luong-komorebi @hotay
+# The `/airhouse/me/*` routes, out of crates/airhouse/src/api (crate-depth B2).
+crates/api-data-plane/                             @luong-komorebi @hotay
 internal-docs/airhouse-integration.md              @luong-komorebi @hotay
 
 # Per-org OLTP Postgres — Neon-provisioned tenant DBs behind ctx.oltp/ctx.tx,
@@ -217,6 +219,9 @@ internal-docs/platform-metrics.md                  @luong-komorebi @hotay
 
 # Partner distribution platform
 crates/api-tenancy/                                @luong-komorebi @NTtanh
+# The Airhouse console's handlers, out of crates/airhouse/src/api/admin
+# (crate-depth B2). After the line above, which would otherwise claim them.
+crates/api-tenancy/src/admin/airhouse/             @luong-komorebi @hotay
 web-app/src/pages/partners/                        @luong-komorebi @NTtanh
 internal-docs/partner-platform.md                  @luong-komorebi @NTtanh
 

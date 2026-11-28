@@ -100,7 +100,8 @@ t2 = [
 # driven adapters (its adapters/ crate, implementing the core's ports).
 t3 = [
   "agentic-http", "oxy-api-admin", "oxy-api-airway", "oxy-api-automations",
-  "oxy-api-billing", "oxy-api-custom-apps", "oxy-api-documents", "oxy-api-eval",
+  "oxy-api-billing", "oxy-api-custom-apps", "oxy-api-data-plane",
+  "oxy-api-documents", "oxy-api-eval",
   "oxy-api-experiment", "oxy-api-frontline", "oxy-api-github",
   "oxy-api-identity", "oxy-api-metric-monitoring", "oxy-api-notifications",
   "oxy-api-observability", "oxy-api-operating-graph", "oxy-api-previews",
@@ -126,7 +127,6 @@ allowed = [
   "agentic-pipeline -> agentic-automation",
   "agentic-semantic -> oxy-airlayer-compat",
   "airhouse -> agentic-connector",
-  "airhouse -> oxy-auth",
   "airhouse -> oxy-platform",
   "oxy -> oxy-airlayer-compat",
   "oxy -> oxy-auth",

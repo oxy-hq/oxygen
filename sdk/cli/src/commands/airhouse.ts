@@ -24,7 +24,7 @@ import { out } from "../ui/tty.js";
 import { CliError, ExitCode, refusal, usageError } from "../util/errors.js";
 import { call, confirm, PROVISION_TIMEOUT_MS } from "./oltp-client.js";
 
-/** One row of `GET /admin/airhouse` — `airhouse::api::admin::AirhouseFleetRow`. */
+/** One row of `GET /admin/airhouse` — `oxy_api_tenancy::admin::airhouse::inner::AirhouseFleetRow`. */
 export interface AirhouseFleetRow {
   workspace_id: string;
   workspace_name: string;
@@ -45,7 +45,7 @@ export interface AirhouseFleetRow {
   bearer_max_ttl_secs: number | null;
 }
 
-/** `airhouse::api::admin::AirhouseFleet`. */
+/** `oxy_api_tenancy::admin::airhouse::inner::AirhouseFleet`. */
 interface AirhouseFleet {
   rows: AirhouseFleetRow[];
   truncated: { unprovisioned: boolean; provisioned: boolean };
@@ -59,7 +59,7 @@ export const provisionPath = (workspaceId: string) =>
 export const rotateSaPath = (workspaceId: string) =>
   `/api/admin/workspaces/${encodeURIComponent(workspaceId)}/airhouse/rotate-sa`;
 
-/** `airhouse::api::admin::RotatedSa` — ids and a time, never a bearer. */
+/** `oxy_api_tenancy::admin::airhouse::inner::RotatedSa` — ids and a time, never a bearer. */
 export interface RotatedSa {
   workspace_id: string;
   old_sa_id: string;

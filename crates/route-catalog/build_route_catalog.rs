@@ -730,7 +730,7 @@ const SEEDS: &[Seed] = &[
 /// `crates/api-metric-monitoring/src`, `crates/api-observability/src`,
 /// `crates/api-automations/src`, `crates/api-workspace-config/src`,
 /// `crates/api-threads/src`, `crates/api-workspaces/src`,
-/// `crates/api-semantic/src` and `crates/api-eval/src`, none of
+/// `crates/api-semantic/src`, `crates/api-eval/src` and `crates/api-data-plane/src`, none of
 /// which `oxy-app` depended on (`oxy-server` mounts them as siblings). Editing
 /// one re-runs this build script, ~2 s in series before `oxy-server`'s lib.
 /// It is the price of listing their routes at all: not watching them means
@@ -751,7 +751,7 @@ pub const DOC_DIRS: &[&str] = &[
     "crates/server/src/router",
     "crates/agentic/http/src",
     "crates/cameras/src",
-    "crates/airhouse/src",
+    "crates/api-data-plane/src",
     "crates/oltp/src",
     "crates/api-admin/src",
     "crates/api-billing/src",
@@ -800,7 +800,7 @@ pub const SOURCE_DIRS: &[&str] = &[
     // and `admin::router` now merges only the sections surfaces hand in.
     "crates/agentic/http/src",
     "crates/cameras/src/routes",
-    "crates/airhouse/src/api",
+    "crates/api-data-plane/src",
     "crates/api-admin/src",
     "crates/api-billing/src",
     "crates/api-github/src",

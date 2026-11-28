@@ -245,7 +245,7 @@ pub fn admin_oltp_routes() -> Router<AppState> {
 }
 
 /// A workspace's Airhouse tenant console, relative to `/admin`: the
-/// scope-fenced shim over `airhouse::api::admin`. Its own section
+/// scope-fenced shim over `admin::airhouse::inner`. Its own section
 /// (`PlatformAirhouse`), and its own function so the route catalog can seed it.
 pub fn admin_airhouse_routes() -> Router<AppState> {
     Router::new().merge(admin::airhouse::router())
