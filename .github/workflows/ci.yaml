@@ -131,10 +131,18 @@ defaults:
 # Unset both _SPOT variables and everything is on-demand, which is what shipped
 # before this: merging the gate changes nothing on its own.
 #
-# What it saves is modest and worth knowing before adding to it: of the last
-# 100 CI runs, 80 were pull requests and 18 were pushes to main, so main is
-# under a fifth of the traffic. At ~$0.056 a run on spot against ~$0.24
-# on-demand that is roughly $70-95/month. Pull requests are where the bill is.
+# What it saves, re-measured 2026-11-27 from the runner's own cost line over
+# five main runs and four pull-request runs: the seven Rust jobs are $0.0713 a
+# run on spot against $0.1721 on-demand -- so spot is 2.4x cheaper, not the
+# 4.3x the first estimate implied, because on-demand came in at $0.17 rather
+# than the $0.24 guessed. Main carried 45 of 26 November's 185 runs, a quarter
+# of the traffic, which at $0.101 saved a run is about $136/month -- above the
+# $70-95 first projected, since there is more main traffic than the last-100
+# sample showed. Pull requests are still where the bill is.
+#
+# Spot costs nothing in speed, which was the open risk: `Build oxy` medians
+# 4.52m on both lifecycles (n=141 on-demand, n=59 spot), and no sampled main
+# run was interrupted.
 
 # Runner gate for the light jobs, same shape as the one above.
 #
