@@ -35,7 +35,8 @@ use super::protected::{
 };
 use super::public::build_public_routes;
 use super::{AppState, build_cors_layer};
-use oxy_app_core::seams::{SurfaceSeam, SurfaceSeams};
+use oxy_app_core::function_seam::FunctionRuntime;
+use oxy_app_core::seams::{SubscriptionGate, SurfaceSeam, SurfaceSeams};
 
 /// Builds the main API router (mounted under `/api`) and, alongside it, the
 /// external API router (`/external/api`). The external one is returned
@@ -144,6 +145,7 @@ pub async fn api_router_with_state(
         openapi: _,
         // Run by `serve` and `worker` at boot, around migrations.
         notifications: _,
+        subscription_gate,
     } = seams;
     // Boot cleanup only where the startup pass runs: a `serve` replica
     // (`--no-workers`) resumes nothing, so every row it would reconcile belongs
@@ -303,14 +305,15 @@ pub async fn api_router_with_state(
     //     so it sits behind workspace_middleware + auth_middleware and
     //     trusts the URL's workspace_id.
     let camera_routes = oxy_cameras::routes::router::<AppState>(agentic_state.db.clone());
-    let app_routes = public_router.merge(protected_routes).merge(camera_routes);
     // The function runtime, for the handlers in this crate that run a function
     // on a person's behalf (a notification's function action). Handed in by the
-    // composition root; absent, those answer that no runtime is available.
-    let app_routes = match function_runtime {
-        Some(runtime) => app_routes.layer(axum::Extension(runtime)),
-        None => app_routes,
-    };
+    // composition root; absent, those answer that no runtime is available. And
+    // billing's answers, for the subscription guard.
+    let app_routes = layer_seam_extensions(
+        public_router.merge(protected_routes).merge(camera_routes),
+        function_runtime,
+        subscription_gate,
+    );
 
     // External API surface (`/external/api`): curated routes, API-key-only
     // auth, wide-open CORS. Built from the SAME shared `app_state` +
@@ -322,6 +325,7 @@ pub async fn api_router_with_state(
         agentic_state.clone(),
         mode,
         extra_external_routes,
+        subscription_gate,
     );
 
     // The Layer-1 cache is handed back so the caller can reach the surfaces it
@@ -393,6 +397,7 @@ pub async fn internal_api_router(
         // Documentation only — `build_openapi_doc` merges it, not the router.
         openapi: _,
         notifications: _,
+        subscription_gate,
     } = seams;
     let app_state = AppState {
         enterprise,
@@ -447,9 +452,26 @@ pub async fn internal_api_router(
     let app_routes = build_public_routes(&app_state)
         .into_router()
         .merge(extra_public_routes)
-        .merge(protected_routes);
+        .merge(protected_routes)
+        // The paywall's answers, as `api_router` layers them.
+        .layer(axum::Extension(subscription_gate));
 
     Ok((finalize_router(app_routes, app_state), agentic_state))
+}
+
+/// The seams' request extensions on the API tree: the function runtime when one
+/// is handed in, and billing's answers for the subscription guard every org- and
+/// workspace-scoped tree re-applies (`SurfaceSeams::subscription_gate`).
+fn layer_seam_extensions(
+    routes: Router<AppState>,
+    function_runtime: Option<Arc<dyn FunctionRuntime>>,
+    subscription_gate: SubscriptionGate,
+) -> Router<AppState> {
+    let routes = match function_runtime {
+        Some(runtime) => routes.layer(axum::Extension(runtime)),
+        None => routes,
+    };
+    routes.layer(axum::Extension(subscription_gate))
 }
 
 async fn new_agentic_state(

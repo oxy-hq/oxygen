@@ -15,9 +15,11 @@
 //! continue to work.
 //!
 //! Refusal plumbing, not the billing decision: whether billing is switched off
-//! (`oxy_billing::billing_disabled`) and whether a status grants access
-//! (`oxy_billing::state`) are `oxy-billing`'s. This module only turns that answer
-//! into the 402 every org- and workspace-scoped surface returns.
+//! and whether a status grants access are `oxy-billing`'s, asked through the
+//! [`SubscriptionGate`] the router layers onto the API tree as an `Extension`
+//! (`SurfaceSeams::subscription_gate`). This module only turns that answer into
+//! the 402 every org- and workspace-scoped surface returns. A guarded route
+//! reached without a gate answers 500: a missing wire never skips the paywall.
 
 use axum::Json;
 use axum::http::StatusCode;
@@ -30,7 +32,31 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use super::org_context::OrgContext;
-use oxy_billing::billing_disabled;
+use crate::seams::SubscriptionGate;
+
+/// What the guard does with a request once it knows the org.
+enum Gate {
+    /// Billing is switched off: let the request through.
+    Off,
+    /// Billing is on: check the org's row against this gate.
+    On(SubscriptionGate),
+}
+
+/// Billing's gate from the request, or the 500 a router built without one gets.
+fn gate_of(request: &axum::http::Request<axum::body::Body>) -> Result<Gate, Response> {
+    let Some(gate) = request.extensions().get::<SubscriptionGate>().copied() else {
+        tracing::error!(
+            "subscription_guard: no SubscriptionGate extension on the request; the router \
+             was built without `SurfaceSeams::subscription_gate`"
+        );
+        return Err(StatusCode::INTERNAL_SERVER_ERROR.into_response());
+    };
+    Ok(if (gate.disabled)() {
+        Gate::Off
+    } else {
+        Gate::On(gate)
+    })
+}
 
 /// 402 body shape. The web client reads `code = subscription_required` and
 /// mounts the `PaywallScreen` overlay; `status` lets it render the right copy.
@@ -59,13 +85,13 @@ pub async fn subscription_guard_middleware(
     request: axum::http::Request<axum::body::Body>,
     next: Next,
 ) -> Result<Response, Response> {
-    if billing_disabled() {
-        return Ok(next.run(request).await);
-    }
     let Some(org_id) = request.extensions().get::<OrgContext>().map(|c| c.org.id) else {
         return Ok(next.run(request).await);
     };
-    enforce(org_id, request, next).await
+    let Gate::On(gate) = gate_of(&request)? else {
+        return Ok(next.run(request).await);
+    };
+    enforce(gate, org_id, request, next).await
 }
 
 /// Workspace-scoped guard. Reads `org_members::Model` (inserted by
@@ -74,9 +100,6 @@ pub async fn workspace_subscription_guard_middleware(
     request: axum::http::Request<axum::body::Body>,
     next: Next,
 ) -> Result<Response, Response> {
-    if billing_disabled() {
-        return Ok(next.run(request).await);
-    }
     let Some(org_id) = request
         .extensions()
         .get::<entity::org_members::Model>()
@@ -84,10 +107,14 @@ pub async fn workspace_subscription_guard_middleware(
     else {
         return Ok(next.run(request).await);
     };
-    enforce(org_id, request, next).await
+    let Gate::On(gate) = gate_of(&request)? else {
+        return Ok(next.run(request).await);
+    };
+    enforce(gate, org_id, request, next).await
 }
 
 async fn enforce(
+    gate: SubscriptionGate,
     org_id: Uuid,
     request: axum::http::Request<axum::body::Body>,
     next: Next,
@@ -106,12 +133,12 @@ async fn enforce(
         }
     };
 
-    let effective = oxy_billing::state::effective_status(
+    let effective = (gate.effective_status)(
         billing.status,
         billing.grace_period_ends_at.map(|t| t.with_timezone(&Utc)),
         Utc::now(),
     );
-    if !oxy_billing::state::grants_access(
+    if !(gate.grants_access)(
         billing.status,
         billing.grace_period_ends_at.map(|t| t.with_timezone(&Utc)),
         Utc::now(),
@@ -146,6 +173,28 @@ mod tests {
             let resp = paywall_response(s);
             assert_eq!(resp.status(), StatusCode::PAYMENT_REQUIRED);
         }
+    }
+
+    fn bare_request() -> axum::http::Request<axum::body::Body> {
+        axum::http::Request::new(axum::body::Body::empty())
+    }
+
+    /// A router built without billing's gate fails closed: 500, never a pass.
+    #[test]
+    fn a_request_without_a_gate_is_refused_not_waved_through() {
+        let Err(resp) = gate_of(&bare_request()) else {
+            panic!("a request without a SubscriptionGate must not reach the handler");
+        };
+        assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[test]
+    fn a_billing_off_gate_lets_the_request_through() {
+        let mut request = bare_request();
+        request
+            .extensions_mut()
+            .insert(SubscriptionGate::billing_off());
+        assert!(matches!(gate_of(&request), Ok(Gate::Off)));
     }
 
     #[tokio::test]

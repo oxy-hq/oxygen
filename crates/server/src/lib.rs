@@ -512,6 +512,9 @@ pub fn surface_seams() -> SurfaceSeams {
         post_migrate: None,
         example_apps: Some(oxy_api_custom_apps::seed::example_apps()),
         notifications: Some(oxy_api_notifications::seam()),
+        // The paywall's answers, which the subscription guard below the API
+        // crates reads from the request (`oxy-api-billing`'s).
+        subscription_gate: oxy_api_billing::subscription_gate(),
     }
 }
 

@@ -214,6 +214,10 @@ pub async fn github_answers(github: &MockServer, token: &str, response: Response
 fn routes_as(user: &AuthenticatedUser) -> Router {
     oxy_api_github::routes()
         .layer(Extension(user.clone()))
+        // Billing off, as in every test: the paywall lets the org through.
+        .layer(Extension(
+            oxy_app_core::seams::SubscriptionGate::billing_off(),
+        ))
         .with_state(oxy_app_core::app_state::bare_app_state())
 }
 

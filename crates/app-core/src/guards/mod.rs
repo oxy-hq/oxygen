@@ -1,7 +1,8 @@
 //! The request guards every surface layers: role-guard extractors, org context,
 //! the paywall's refusal, the staff console's per-app scope fence, and partner
 //! authorization. Authorization plumbing — the decisions are `oxy-authz`'s (through
-//! `oxy-server-authz`) and, for the paywall, `oxy-billing`'s.
+//! `oxy-server-authz`) and, for the paywall, billing's (through
+//! `seams::SubscriptionGate`).
 //!
 //! Went down from `oxy-app`'s `server::api::middlewares` on 2026-11-22 (decompose
 //! G2); `oxy-app` re-exports each module at its old path. The staff console's

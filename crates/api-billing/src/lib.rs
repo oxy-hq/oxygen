@@ -32,6 +32,10 @@
 //!   inline: once per iteration of the global driver's loop, on every process
 //!   that runs the driver, whatever that node claimed.
 //!
+//! And one port it fills for `oxy-app-core`: [`subscription_gate`], the
+//! paywall's answers, handed in by `oxy-server` as the required
+//! `SurfaceSeams::subscription_gate`.
+//!
 //! Every route reads or writes Postgres (the report, preference and delivery
 //! rows, the staff grants, the Stripe customer and subscription rows), calls
 //! Stripe, and sends mail; nothing reads a working copy. The console's FleetOk
@@ -50,7 +54,7 @@ pub mod usage_report;
 use axum::Router;
 use axum::routing::post;
 use oxy_app_core::AppState;
-use oxy_app_core::seams::{AdminSection, GlobalTickSeam, TickPass};
+use oxy_app_core::seams::{AdminSection, GlobalTickSeam, SubscriptionGate, TickPass};
 use oxy_server_authz::Action;
 use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
 
@@ -174,6 +178,19 @@ pub fn global_ticks() -> Vec<GlobalTickSeam> {
             })
         },
     }]
+}
+
+/// The paywall's answers, for `oxy-server` to hand in as
+/// `SurfaceSeams::subscription_gate`: the subscription guard
+/// below the API crates asks billing through it whether billing is switched off
+/// and whether an org's status grants access. Each is `oxy_billing`'s own
+/// function, the one the guard called before it lost the dependency.
+pub fn subscription_gate() -> SubscriptionGate {
+    SubscriptionGate {
+        disabled: oxy_billing::billing_disabled,
+        effective_status: oxy_billing::state::effective_status,
+        grants_access: oxy_billing::state::grants_access,
+    }
 }
 
 #[cfg(test)]

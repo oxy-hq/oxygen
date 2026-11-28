@@ -280,6 +280,8 @@ pub(super) fn build_external_api_router(
     // standalone apps, merged here so they get the same workspace context, auth
     // and CORS as the curated routes beside them.
     extra_external_routes: Router<AppState>,
+    // Billing's answers, for the workspace subscription guard below.
+    subscription_gate: oxy_app_core::seams::SubscriptionGate,
 ) -> Router {
     let extra_external_routes = with_agentic_state(extra_external_routes, &agentic_state);
     let curated = build_external_workspace_routes(&app_state, agentic_state)
@@ -309,6 +311,7 @@ pub(super) fn build_external_api_router(
         // (below) still runs first, so unauth misses stay 401.
         .fallback(external_api_not_found);
     external_auth_layers(routes)
+        .layer(axum::Extension(subscription_gate))
         .layer(super::build_external_cors_layer())
         .with_state(app_state)
 }

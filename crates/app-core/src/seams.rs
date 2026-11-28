@@ -30,6 +30,9 @@ use crate::AppState;
 use crate::function_seam::FunctionRuntime;
 use crate::preagg_cache_ctx::PreaggCacheCtx;
 
+mod subscription_gate;
+pub use subscription_gate::SubscriptionGate;
+
 /// One surface seam: routes and their placement declarations, which travel
 /// together. A route without a declaration takes the FleetOk default.
 #[derive(Clone)]
@@ -447,7 +450,7 @@ pub struct ExampleAppsSeam {
 }
 
 /// Every surface seam, by where it sits relative to the auth stack.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct SurfaceSeams {
     /// AUTHENTICATED. Merged into the protected tree before `apply_middleware`
     /// (cloud mode), so these routes inherit the standard auth stack (auth /
@@ -545,6 +548,10 @@ pub struct SurfaceSeams {
     /// The notifications surface's boot hooks; `serve` and `worker` refuse to
     /// start without them.
     pub notifications: Option<NotificationsSeam>,
+    /// Billing's answers to the paywall (`oxy-api-billing`'s). Required, not an
+    /// `Option`: an absent gate would let every org past the paywall. Layered
+    /// onto the API tree as an `Extension` the subscription guard reads.
+    pub subscription_gate: SubscriptionGate,
 }
 
 /// The `TaskSpec::Custom` kinds `oxy-app`'s own enqueue sites queue for custom
@@ -689,9 +696,30 @@ pub fn require_task_kinds(tasks: &[TaskSeam]) -> Result<(), String> {
 }
 
 impl SurfaceSeams {
-    /// No extracted surfaces at all.
+    /// No extracted surfaces at all, and billing switched off.
     pub fn empty() -> Self {
-        Self::default()
+        Self {
+            api: SurfaceSeam::empty(),
+            workspace: SurfaceSeam::empty(),
+            previews: SurfaceSeam::empty(),
+            public: SurfaceSeam::empty(),
+            external: Router::new(),
+            admin: Vec::new(),
+            admin_nests: Vec::new(),
+            openapi: Vec::new(),
+            catalog: SurfaceSeam::empty(),
+            tasks: Vec::new(),
+            background: Vec::new(),
+            fleet_jobs: Vec::new(),
+            global_ticks: Vec::new(),
+            outer: None,
+            outer_decls: Vec::new(),
+            function_runtime: None,
+            post_migrate: None,
+            example_apps: None,
+            notifications: None,
+            subscription_gate: SubscriptionGate::billing_off(),
+        }
     }
 
     /// The startup check for a process that serves custom apps: every task

@@ -66,7 +66,8 @@ pub use oxy_app_core::app_state::bare_app_state;
 /// surfaces' share, exactly as `api_router` takes them from [`SurfaceSeams`]: the
 /// `api` seam's routes join the global tree behind the same auth stack, the
 /// `public` seam's join the public tree outside it, and the `admin` sections
-/// mount under `/admin`, with the `admin_nests` beside them.
+/// mount under `/admin`, with the `admin_nests` beside them. Billing's real
+/// subscription gate is layered on, as `surface_seams` hands it to `api_router`.
 ///
 /// Public for the same reason as [`api_auth_layers`]: `oxy-server`'s token
 /// tests drive the real mounts, guards and handlers (`/orgs`, `/user/tokens`,
@@ -86,6 +87,7 @@ pub fn flat_api_surface(
                 .into_router()
                 .merge(extra_api_routes),
         ))
+        .layer(axum::Extension(oxy_api_billing::subscription_gate()))
         .with_state(state)
 }
 

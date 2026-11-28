@@ -156,7 +156,6 @@ allowed = [
   "oxy-app-core -> oxy",
   "oxy-app-core -> oxy-airlayer-compat",
   "oxy-app-core -> oxy-auth",
-  "oxy-app-core -> oxy-billing",
   "oxy-app-core -> oxy-compile",
   "oxy-app-core -> oxy-git",
   "oxy-app-core -> oxy-observability",
