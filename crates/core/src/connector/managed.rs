@@ -8,7 +8,7 @@
 //! `oxy` core means core must not call them directly. Instead it defines this
 //! trait and reads an implementation that the application layer (`oxy-app`,
 //! which owns those crates) registers once at startup — the same shape as
-//! [`oxy_observability::global`].
+//! `oxy_observability::global`.
 //!
 //! Core still owns the *shape* of a managed connection: it wraps the resolved
 //! DSN in a [`crate::connector`] `ConnectorX` (Postgres wire). The port

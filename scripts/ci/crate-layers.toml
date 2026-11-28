@@ -133,7 +133,6 @@ allowed = [
   "oxy -> oxy-compile",
   "oxy -> oxy-git",
   "oxy -> oxy-llm",
-  "oxy -> oxy-observability",
   "oxy -> oxy-platform",
   "oxy -> oxy-semantic",
   "oxy-api-airway -> oxy-workspace-runtime",

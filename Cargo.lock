@@ -9261,7 +9261,6 @@ dependencies = [
  "oxy-compile",
  "oxy-git",
  "oxy-llm",
- "oxy-observability",
  "oxy-platform",
  "oxy-semantic",
  "oxy-shared",

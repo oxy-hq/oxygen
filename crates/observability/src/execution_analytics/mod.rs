@@ -5,7 +5,7 @@
 //!
 //! Moved here from `oxy::execution_analytics` (depth stage C, D6, 2026-11-27):
 //! it is the response shape of this crate's store, and it needs nothing from
-//! `oxy`. `oxy::execution_analytics` re-exports it for one release.
+//! `oxy`. The one-release `oxy::execution_analytics` re-export is gone.
 
 mod storage;
 mod types;
