@@ -203,8 +203,10 @@ pub async fn api_router_with_state(
         preagg_cache,
         preagg_renewal_threshold_secs,
         agentic_state: Some(agentic_state.clone()),
-        semantic_layer_cache: oxy_app_core::workspace_cache::new_semantic_layer_cache(),
-        semantic_engine_cache: oxy_app_core::workspace_cache::new_semantic_engine_cache(),
+        // The composition root wires the one enforcement-port implementation.
+        authz: oxy_server_authz::enforcer(),
+        // Fresh semantic caches.
+        ..oxy_app_core::app_state::bare_app_state()
     };
 
     // Built here rather than at the merge below because `install_declarations`
@@ -403,8 +405,10 @@ pub async fn internal_api_router(
         // Internal router has no custom-app endpoints; agentic state
         // not needed and explicitly omitted.
         agentic_state: None,
-        semantic_layer_cache: oxy_app_core::workspace_cache::new_semantic_layer_cache(),
-        semantic_engine_cache: oxy_app_core::workspace_cache::new_semantic_engine_cache(),
+        // The composition root wires the one enforcement-port implementation.
+        authz: oxy_server_authz::enforcer(),
+        // Fresh semantic caches.
+        ..oxy_app_core::app_state::bare_app_state()
     };
     // `api_router` owns startup cleanup, and `serve`'s boot recovery, for the
     // whole process; the internal router shares the same database state, so it

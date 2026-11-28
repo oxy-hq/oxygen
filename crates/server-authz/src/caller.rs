@@ -8,6 +8,9 @@
 //! loader, [`crate::globals`], [`crate::enforce_for`], the partner scope and
 //! the assume-role liveness reads (API-tokens design §4.4).
 //!
+//! Since C2 the values live in [`contracts_authz::Caller`], the enforcement
+//! port's plain projection, and this type wraps it (see [`Caller`]).
+//!
 //! A browser session and a **legacy key** carry no token here — they decide
 //! exactly as they always have (§3.5).
 //!
@@ -18,59 +21,49 @@
 //! resolutions take their service-account branch from it (§3.3).
 
 use std::future::Future;
+use std::ops::Deref;
 
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
 use axum::http::{Extensions, StatusCode};
 use entity::org_members::OrgRole;
 use entity::workspace_members::WorkspaceRole;
-use oxy_auth::token::{AccountStanding, AppPublishGrant, CredentialContext, StoredKind};
+use oxy_auth::token::{CredentialContext, StoredKind};
 use oxy_auth::types::AuthenticatedUser;
-use oxy_authz::{PlatformStanding, PrincipalFacts, RoleCeiling, SandboxAgentReach, TokenReach};
+use oxy_authz::RoleCeiling;
 use uuid::Uuid;
 
-use crate::grant_memo::GrantMemo;
-
-/// The new-format token a request authenticated with.
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct CallerToken {
-    id: Uuid,
-    reach: TokenReach,
-    /// When the credential ends; `None` for never.
-    expires_at: Option<chrono::DateTime<chrono::Utc>>,
-}
-
 /// The principal behind a request, as its credential presents them.
+///
+/// The values and every pure read of them (ceilings, `carries_*`, the service
+/// account and sandbox agent branches) are [`contracts_authz::Caller`]'s, reached
+/// through `Deref`, so a domain that enforces through the port reads the same
+/// answers from the same code. This wrapper keeps what needs `oxy-auth`, axum or a
+/// clock: the projection from the authenticated request, the extractor, and the
+/// two reads that answer an entity row or a `chrono` time.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Caller {
-    pub user_id: Uuid,
-    /// `""` for a user with no address (a frontline worker) — the established
-    /// "holds no platform standing" value.
-    email: String,
-    /// `None` for a browser session and for a legacy key.
-    token: Option<CallerToken>,
-    /// Set when the request acts as a service account: with the account's
-    /// own token, or with a `ci` token a trust policy minted for it.
-    account: Option<CallerAccount>,
-    /// The apps the credential's `app_publish` grants name. Empty for a
-    /// session, a legacy key and every token that holds none.
-    app_publish: Vec<AppPublishGrant>,
-    /// The platform grant this request has read uncached, kept for its other
-    /// guards. Written only for a sandbox agent token (`globals`); never part
-    /// of who the caller is.
-    grant_memo: GrantMemo,
-    /// Set when the request is a configured service (`oxysvc_`): the standing
-    /// its `OXY_SERVICE_TOKENS` entry gives it, which `globals` reads instead
-    /// of the grant table.
-    service: Option<PlatformStanding>,
+pub struct Caller(contracts_authz::Caller);
+
+impl Deref for Caller {
+    type Target = contracts_authz::Caller;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
 
-/// The service account a request acts as. `standing` is `None` only if the
-/// credential named an account without one — which reads as an account with
-/// no standing anywhere, never as a person.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct CallerAccount {
-    standing: Option<AccountStanding>,
+/// The port's caller is this one's values: the memo `Arc` included, so a guard
+/// and a port read of one request share one uncached grant read.
+impl From<Caller> for contracts_authz::Caller {
+    fn from(caller: Caller) -> Self {
+        caller.0
+    }
+}
+
+impl From<contracts_authz::Caller> for Caller {
+    fn from(caller: contracts_authz::Caller) -> Self {
+        Self(caller)
+    }
 }
 
 impl Caller {
@@ -81,35 +74,44 @@ impl Caller {
     /// `credential` is the request's `CredentialContext` marker when the call
     /// site has it in hand; otherwise the one the user carries is used — they
     /// are the same value, set together by the auth entry points.
+    ///
+    /// **This is the projection to the port's plain [`contracts_authz::Caller`]**:
+    /// the token's expiry becomes a [`contracts_authz::UnixTime`], and a
+    /// configured service's standing is read from its entry here, once.
     pub fn of(user: &AuthenticatedUser, credential: Option<&CredentialContext>) -> Self {
         let credential = credential.or(user.credential.as_ref());
         let token = credential.and_then(|c| {
-            c.reach().map(|reach| CallerToken {
+            c.reach().map(|reach| contracts_authz::CallerToken {
                 id: c.token_id,
                 reach,
-                expires_at: c.expires_at,
+                expires_at: c.expires_at.map(|at| contracts_authz::UnixTime {
+                    secs: at.timestamp(),
+                    subsec_nanos: at.timestamp_subsec_nanos(),
+                }),
             })
         });
-        let account = credential
-            .filter(|c| c.is_service_account())
-            .map(|c| CallerAccount {
-                standing: c.service_account,
-            });
+        let account =
+            credential
+                .filter(|c| c.is_service_account())
+                .map(|c| contracts_authz::CallerAccount {
+                    standing: c.service_account,
+                });
         let app_publish = credential
             .map(|c| c.app_publish.clone())
             .unwrap_or_default();
         let service = credential
             .filter(|c| c.kind == StoredKind::Service)
             .and_then(|c| oxy_auth::token::service::standing_of(c.token_id));
-        Self {
-            user_id: user.id,
-            email: user.email.clone().unwrap_or_default(),
-            token,
-            account,
-            app_publish,
-            grant_memo: GrantMemo::default(),
-            service,
-        }
+        Self(contracts_authz::Caller::from_parts(
+            contracts_authz::CallerParts {
+                user_id: user.id,
+                email: user.email.clone().unwrap_or_default(),
+                token,
+                account,
+                app_publish,
+                service,
+            },
+        ))
     }
 
     /// The caller a request's user is: the user, with the key or token they
@@ -151,14 +153,11 @@ impl Caller {
         if extensions.get::<Self>().is_some() {
             return;
         }
-        if let Some(caller) = Self::from_extensions(extensions).filter(Self::is_sandbox_agent) {
+        if let Some(caller) =
+            Self::from_extensions(extensions).filter(|caller| caller.is_sandbox_agent())
+        {
             extensions.insert(caller);
         }
-    }
-
-    /// The slot [`crate::globals`] keeps this request's uncached grant in.
-    pub(crate) fn grant_memo(&self) -> &GrantMemo {
-        &self.grant_memo
     }
 
     /// A principal with **no credential in hand**: code acting for a user
@@ -168,58 +167,13 @@ impl Caller {
     /// drops the token's narrowing. Take [`Caller`] as an extractor, or
     /// [`Caller::of`], instead.
     pub fn without_credential(user_id: Uuid, email: &str) -> Self {
-        Self {
-            user_id,
-            email: email.to_string(),
-            token: None,
-            account: None,
-            app_publish: Vec::new(),
-            grant_memo: GrantMemo::default(),
-            service: None,
-        }
+        Self(contracts_authz::Caller::without_credential(user_id, email))
     }
 
-    /// The standing of a configured service (`oxysvc_`), from its entry; `None`
-    /// for every other caller. Read by `globals` alone.
-    pub(crate) fn service_standing(&self) -> Option<&PlatformStanding> {
-        self.service.as_ref()
-    }
-
-    /// Whether the credential holds any `app_publish` grant. One that does
-    /// publishes only the apps its grants name.
-    pub fn holds_app_publish(&self) -> bool {
-        !self.app_publish.is_empty()
-    }
-
-    /// Whether an `app_publish` grant names this app of this org.
-    pub fn publishes_app(&self, org_id: Uuid, app_id: Uuid) -> bool {
-        self.app_publish
-            .iter()
-            .any(|g| g.org_id == org_id && g.app_id == app_id)
-    }
-
-    /// Whether the request acts as an org's service account, not as a person.
-    ///
-    /// Surfaces that act *as the caller* — minting the caller their own
-    /// warehouse credential, say — refuse one by default (design §3.3): there
-    /// is no person behind it to hold what they hand out.
-    pub fn is_service_account(&self) -> bool {
-        self.account.is_some()
-    }
-
-    /// Whether the request is a service account acting through a **CI run
-    /// token** (`oxy_ci_`, minted by a trust policy for one CI run) rather than
-    /// through its own long-lived token or as a person. Read by the compile
-    /// check's guard (`role_guards::CompileChecker`) for its shipped term; the
-    /// decision itself is `oxy_authz::Action::CompileCheck`.
-    pub fn is_ci_run(&self) -> bool {
-        self.is_service_account() && self.reach().is_some_and(|reach| reach.ci_run)
-    }
-
-    /// The service account's standing: its one org, and whether it is an
-    /// admin there. `None` for a person — and for an account with none.
-    pub fn account_standing(&self) -> Option<AccountStanding> {
-        self.account.and_then(|a| a.standing)
+    /// The port's view of this caller: the same values, for a call through
+    /// [`contracts_authz::AuthzEnforcer`].
+    pub fn as_contract(&self) -> &contracts_authz::Caller {
+        &self.0
     }
 
     /// The role a service account holds in `org_id`, from its own row: Admin
@@ -232,75 +186,6 @@ impl Caller {
         } else {
             OrgRole::Member
         })
-    }
-
-    /// The sandbox agent token the request authenticated with: its id, and
-    /// the apps it names. `None` for every other credential.
-    ///
-    /// Such a caller is its minter confined to the sandbox loop on those apps
-    /// (sandbox agent credential design §3.2). It holds **no tenant role**:
-    /// the facts loader loads it none, and the two role resolutions answer it
-    /// as they answer a workspace or an org that does not exist.
-    pub fn sandbox_agent(&self) -> Option<&SandboxAgentReach> {
-        self.reach().and_then(|reach| reach.sandbox_agent.as_ref())
-    }
-
-    /// Whether the request authenticated with a sandbox agent token.
-    pub fn is_sandbox_agent(&self) -> bool {
-        self.sandbox_agent().is_some()
-    }
-
-    /// The user's address, for display and logs. Not what standing is read
-    /// by — that is [`Self::standing_email`].
-    pub fn email(&self) -> &str {
-        &self.email
-    }
-
-    /// What the token narrows its bearer to; `None` when nothing does.
-    pub fn reach(&self) -> Option<&TokenReach> {
-        self.token.as_ref().map(|t| &t.reach)
-    }
-
-    /// The address to read platform standing by: blank — nobody — when the
-    /// token does not carry it.
-    pub(crate) fn standing_email(&self) -> &str {
-        if self.carries_platform() {
-            &self.email
-        } else {
-            ""
-        }
-    }
-
-    /// Whether the bearer's Oxy-staff standing rides this credential.
-    ///
-    /// Never, for a service account: it is not staff, by construction.
-    pub fn carries_platform(&self) -> bool {
-        !self.is_service_account() && self.reach().is_none_or(|r| r.platform)
-    }
-
-    /// Whether the bearer's partner standings ride this credential.
-    /// Never, for a service account.
-    pub fn carries_partner(&self) -> bool {
-        !self.is_service_account() && self.reach().is_none_or(|r| r.partner)
-    }
-
-    /// Is this a token that reaches only what its grants name
-    /// (`all_access = false`)? `false` for a session, a legacy key and an
-    /// all-access token — none of them has a grant to be bound by.
-    ///
-    /// The flat routes have no org or workspace in their path to check a grant
-    /// against; this is what their one guard (`token_grant_scope`) keys on.
-    pub fn bound_to_grants(&self) -> bool {
-        self.reach().is_some_and(TokenReach::bound)
-    }
-
-    /// Is this an **all-access** token that an org has blocked — by its
-    /// revoke-grant, or by a token policy the token breaks? It loses that
-    /// org's data and nothing else, so the same guard lets it onto the flat
-    /// routes that leave a blocked org out. `false` for a session and a
-    /// legacy key: nothing blocks either.
-    pub fn blocked_somewhere(&self) -> bool {
-        self.reach().is_some_and(TokenReach::blocked_somewhere)
     }
 
     /// The org membership a service account stands in for in `org_id` — a
@@ -323,80 +208,13 @@ impl Caller {
         })
     }
 
-    /// Whether the request arrived on a login session: no token, no service
-    /// account and no configured service — the caller `Caller::of` builds
-    /// for a user with no credential.
-    pub fn is_login_session(&self) -> bool {
-        self.token.is_none() && self.account.is_none() && self.service.is_none()
-    }
-
-    /// The stored token (`api_tokens.id`) the request arrived with: what
-    /// code acting for this person again outside the request re-admits by id
-    /// (`oxy_auth::token::store::resolve_stored`), so it acts under the same
-    /// ceiling. `None` for a login session, and for a configured service
-    /// (`oxysvc_`), which has no stored row to re-admit.
-    pub fn stored_token_id(&self) -> Option<Uuid> {
-        if self.service.is_some() {
-            return None;
-        }
-        self.token.as_ref().map(|t| t.id)
-    }
-
     /// When the token this caller arrived with ends: `None` for a token that
     /// never expires, and for a login session or a configured service, which
-    /// have none to report.
+    /// have none to report. The same instant `CredentialContext::expires_at`
+    /// held: [`contracts_authz::UnixTime`] keeps the nanoseconds.
     pub fn token_expires_at(&self) -> Option<chrono::DateTime<chrono::Utc>> {
-        if self.service.is_some() {
-            return None;
-        }
-        self.token.as_ref().and_then(|t| t.expires_at)
-    }
-
-    /// The assume-role sessions this credential may use: `Some(id)` = only the
-    /// ones this new-format token opened; `None` = the ones opened in a browser
-    /// (a session, and a legacy key, which inherits them).
-    pub fn assume_binding(&self) -> Option<Uuid> {
-        self.token.as_ref().map(|t| t.id)
-    }
-
-    /// The ceiling over the org's own routes. `None` = outside every grant;
-    /// `Owner` (no cap) when no token narrows.
-    pub fn org_ceiling(&self, org_id: Uuid) -> Option<RoleCeiling> {
-        match self.reach() {
-            None => Some(RoleCeiling::Owner),
-            Some(reach) => reach.org_ceiling(org_id),
-        }
-    }
-
-    /// The ceiling over one workspace; as [`Self::org_ceiling`].
-    pub fn workspace_ceiling(&self, org_id: Uuid, workspace_id: Uuid) -> Option<RoleCeiling> {
-        match self.reach() {
-            None => Some(RoleCeiling::Owner),
-            Some(reach) => reach.workspace_ceiling(org_id, workspace_id),
-        }
-    }
-
-    /// The highest ceiling of any grant in the org, org-wide or not: the reach
-    /// over an org's children that name no workspace. `None` = the token does
-    /// not touch the org; `Owner` when no token narrows.
-    pub fn org_reach_ceiling(&self, org_id: Uuid) -> Option<RoleCeiling> {
-        match self.reach() {
-            None => Some(RoleCeiling::Owner),
-            Some(reach) => reach.ceiling_in_org(org_id),
-        }
-    }
-
-    /// Whether any grant touches the org — what discovery lists.
-    pub fn touches_org(&self, org_id: Uuid) -> bool {
-        self.reach().is_none_or(|r| r.touches_org(org_id))
-    }
-
-    /// The facts as this credential carries them: capped at the source.
-    pub fn narrow(&self, facts: PrincipalFacts) -> PrincipalFacts {
-        match self.reach() {
-            None => facts,
-            Some(reach) => facts.narrowed_by(reach),
-        }
+        self.token_expires_at_unix()
+            .and_then(|at| chrono::DateTime::from_timestamp(at.secs, at.subsec_nanos))
     }
 }
 

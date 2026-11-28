@@ -79,11 +79,11 @@ t0 = [
 # to shrink.
 t1 = [
   "agentic-connector", "agentic-llm", "agentic-runtime", "agentic-semantic",
-  "airhouse", "migration", "omni", "oxy", "oxy-airlayer-compat", "oxy-app-core",
-  "oxy-auth", "oxy-compile", "oxy-feature-flags", "oxy-git", "oxy-llm",
-  "oxy-looker", "oxy-observability", "oxy-oltp", "oxy-platform", "oxy-semantic",
-  "oxy-slack-client", "oxy-telemetry", "oxy-test-utils", "oxy-unifi",
-  "oxy-workspace-fs",
+  "airhouse", "contracts-authz", "migration", "omni", "oxy", "oxy-airlayer-compat",
+  "oxy-app-core", "oxy-auth", "oxy-compile", "oxy-feature-flags", "oxy-git",
+  "oxy-llm", "oxy-looker", "oxy-observability", "oxy-oltp", "oxy-platform",
+  "oxy-semantic", "oxy-slack-client", "oxy-telemetry", "oxy-test-utils",
+  "oxy-unifi", "oxy-workspace-fs",
 ]
 # T2 domains: never depend on another domain; a domain calls another through
 # its driver port (contracts-*, T1) or a queued task (no event bus). A domain's

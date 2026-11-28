@@ -25,7 +25,7 @@ const LABEL: &str = "guard.compile_check";
 /// The decision is `existing_allow && allows(CompileCheck)`. `existing_allow` is the
 /// shipped check: [`WorkspaceEditor`](crate::role_guards::WorkspaceEditor)'s term
 /// (a role above Viewer) OR the request being the workspace org's service account
-/// through a CI run token ([`Caller::is_ci_run`]).
+/// through a CI run token ([`Caller::is_ci_run`](contracts_authz::Caller::is_ci_run)).
 ///
 /// **The account term fails closed.** When the facts cannot be read, a role guard
 /// defers to its shipped check — but the account term has no shipped check behind it

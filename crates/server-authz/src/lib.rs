@@ -18,12 +18,18 @@
 
 pub use oxy_authz::*;
 
+/// The enforcement driver port this crate implements ([`enforcer`]). Re-exported
+/// so `oxy-app-core` names the trait it holds on `AppState` over its existing
+/// dependency on this crate, not over a new T1 → T1 one (until D5 re-tiers it).
+pub use contracts_authz as contract;
+
+pub mod assume_authority;
 pub mod assume_liveness;
 pub mod caller;
 mod compile_check_guard;
+mod enforcement;
 pub mod factory;
 pub mod globals;
-mod grant_memo;
 pub mod loader;
 pub mod org_context;
 pub mod oxy_app_admin_guard;
@@ -42,6 +48,7 @@ use axum::http::request::Parts;
 use uuid::Uuid;
 
 pub use crate::caller::{Caller, cap_org_role, cap_workspace_role};
+pub use crate::enforcement::{ServerAuthz, enforcer};
 use crate::partner_authz::{PartnerCapability, PartnerScope};
 use oxy_platform::db::establish_connection;
 

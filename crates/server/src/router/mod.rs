@@ -320,28 +320,13 @@ mod app_state_tests {
     #[test]
     fn app_state_carries_mode() {
         let local = AppState {
-            enterprise: false,
-            internal: false,
             mode: ServeMode::Local,
-            observability: None,
             startup_cwd: std::path::PathBuf::from("/tmp"),
-            preagg_cache: None,
-            preagg_renewal_threshold_secs: None,
-            agentic_state: None,
-            semantic_layer_cache: oxy_app_core::workspace_cache::new_semantic_layer_cache(),
-            semantic_engine_cache: oxy_app_core::workspace_cache::new_semantic_engine_cache(),
+            ..oxy_app_core::app_state::bare_app_state()
         };
         let cloud = AppState {
-            enterprise: false,
-            internal: false,
             mode: ServeMode::Cloud,
-            observability: None,
-            startup_cwd: std::path::PathBuf::new(),
-            preagg_cache: None,
-            preagg_renewal_threshold_secs: None,
-            agentic_state: None,
-            semantic_layer_cache: oxy_app_core::workspace_cache::new_semantic_layer_cache(),
-            semantic_engine_cache: oxy_app_core::workspace_cache::new_semantic_engine_cache(),
+            ..oxy_app_core::app_state::bare_app_state()
         };
         assert!(local.mode.is_local());
         assert!(!cloud.mode.is_local());

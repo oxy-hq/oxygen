@@ -9,6 +9,11 @@
 //! [`Caller`](crate::Caller) that asked, and on every clone of it. It lives
 //! exactly as long as that caller does: one request.
 //!
+//! Only the enforcement implementation (`oxy_server_authz::globals`) reads or
+//! writes it. It is public because that implementation is another crate; a
+//! value written here is read back as the caller's platform grant, so nothing
+//! else may write one.
+//!
 //! Sharing follows the value. A `Caller` built once and left in the request's
 //! extensions (`Caller::from_extensions` hands out clones of it) shares one
 //! read across every guard; a `Caller` built separately reads again. Either
@@ -21,17 +26,17 @@ use oxy_authz::PlatformStanding as Grant;
 
 /// The slot. Empty until the first read; never emptied.
 #[derive(Clone, Default)]
-pub(crate) struct GrantMemo(Arc<OnceLock<Option<Grant>>>);
+pub struct GrantMemo(Arc<OnceLock<Option<Grant>>>);
 
 impl GrantMemo {
     /// The grant this caller's request already read, if it has.
-    pub(crate) fn get(&self) -> Option<Option<Grant>> {
+    pub fn get(&self) -> Option<Option<Grant>> {
         self.0.get().cloned()
     }
 
     /// Keep `grant` for the rest of the request. The first write wins; two
     /// guards racing read the same row and would store the same answer.
-    pub(crate) fn set(&self, grant: Option<Grant>) {
+    pub fn set(&self, grant: Option<Grant>) {
         let _ = self.0.set(grant);
     }
 }

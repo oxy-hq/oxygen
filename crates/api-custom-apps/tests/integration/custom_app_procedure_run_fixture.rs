@@ -164,6 +164,7 @@ pub(crate) fn replica(db: &DatabaseConnection) -> Router {
         agentic_state: Some(Arc::new(agentic)),
         semantic_layer_cache: oxy_app_core::workspace_cache::new_semantic_layer_cache(),
         semantic_engine_cache: oxy_app_core::workspace_cache::new_semantic_engine_cache(),
+        authz: oxy_server_authz::enforcer(),
     };
     Router::new()
         .route(START_ROUTE, post(start_automation_run))

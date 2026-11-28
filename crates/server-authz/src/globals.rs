@@ -39,30 +39,10 @@ use sea_orm::{ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter};
 
 use crate::caller::Caller;
 
-/// What Oxy's platform sources say about a person, **as flags to display**. Not a
-/// decision, and deliberately lossy: it says *that* someone is staff, never what they
-/// may do. Feed [`platform_grant_checked`] to a ring when you need the latter.
-///
-/// Renamed off `PlatformStanding` when platform standing became a real grant — that
-/// name now belongs to [`oxy_authz::PlatformStanding`], which carries the capabilities
-/// and scope. Two types with one name, one of them a boolean pair, is how a call site
-/// ends up deciding access from a display flag.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct PlatformFlags {
-    /// In the `OXY_OWNER` env allow-list.
-    pub is_global_owner: bool,
-    /// Holds a row in the platform-grant table (`app_admins`) — **any** role. A
-    /// display flag only: an App Operator and a Global Admin both report `true` here,
-    /// which is precisely why nothing may authorize from it.
-    pub is_global_admin: bool,
-}
-
-impl PlatformFlags {
-    /// Either flag — "is this Oxy staff at all". The `oxy_owner_or_app_admin` shape.
-    pub fn is_staff(self) -> bool {
-        self.is_global_owner || self.is_global_admin
-    }
-}
+// `PlatformFlags` and `Checked` are the enforcement port's vocabulary since C2, so a
+// domain that reads standing through `contracts_authz::AuthzEnforcer` names the same
+// types. Re-exported so every `globals::{PlatformFlags, Checked}` path still resolves.
+pub use contracts_authz::{Checked, PlatformFlags};
 
 /// Is the caller Oxy's root, **as this credential carries it**? The owner allow-list
 /// is an env read with no DB, so sync callers that need only this half don't have to
@@ -489,18 +469,6 @@ pub async fn platform_standing_checked(
             None
         }
     }
-}
-
-/// A resolved platform read: the display flags **and** the grant behind them.
-///
-/// They travel together because they are one database read and must never disagree.
-/// The loader takes [`Self::grant`] (what may this person do); `/me`-style payloads take
-/// [`Self::flags`] (is this person staff). A call site that authorizes from `flags` has
-/// re-created the boolean this whole change removed — take the grant.
-#[derive(Clone, Debug)]
-pub struct Checked {
-    pub flags: PlatformFlags,
-    pub grant: Option<Grant>,
 }
 
 /// The most standing that can be established with **no database**: the `OXY_OWNER`

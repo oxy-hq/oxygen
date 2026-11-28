@@ -12,7 +12,7 @@
 //!
 //! The token's facts are built the way a request builds them: a
 //! [`CredentialContext`] whose `app_sandbox` grant carries `staging`, through
-//! [`Caller`], through [`Caller::narrow`].
+//! [`Caller`], through [`Caller::narrow`](contracts_authz::Caller::narrow).
 
 use oxy_auth::token::{AppSandboxGrant, CredentialContext, StoredKind};
 use oxy_auth::types::AuthenticatedUser;

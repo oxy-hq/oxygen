@@ -199,7 +199,7 @@ pub async fn load_principal_facts_scoped(
 /// the credential carries, which authentication read from the account's row for this
 /// very request (a disabled or deleted account never gets this far).
 ///
-/// The token's grants then cap it, as they cap anyone: [`Caller::narrow`].
+/// The token's grants then cap it, as they cap anyone: [`Caller::narrow`](contracts_authz::Caller::narrow).
 fn service_account_facts(caller: &Caller) -> PrincipalFacts {
     let service_account = caller
         .account_standing()

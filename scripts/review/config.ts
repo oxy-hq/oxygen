@@ -221,7 +221,9 @@ export const HIGH_RISK: readonly RiskArea[] = [
     paths: [
       "crates/authz/**",
       "crates/auth/**",
-      "crates/server-authz/**"
+      "crates/server-authz/**",
+      // The enforcement port: the `Caller` every enforcement read takes lives here.
+      "crates/contracts-authz/**"
     ]
   },
   {
@@ -265,6 +267,7 @@ export const LENSES: readonly Lens[] = [
       "crates/authz/**",
       "crates/auth/**",
       "crates/server-authz/**",
+      "crates/contracts-authz/**",
       "**/role_guards*"
     ],
     patch:

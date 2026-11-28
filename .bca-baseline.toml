@@ -9574,10 +9574,10 @@ metric = "cognitive"
 value = 16.0
 
 [[entry]]
-path = "crates/server-authz/src/caller.rs"
+path = "crates/contracts-authz/src/caller.rs"
 qualified = "Caller"
 metric = "nom"
-value = 52.0
+value = 38.0
 
 [[entry]]
 path = "crates/server-authz/src/caller.rs"

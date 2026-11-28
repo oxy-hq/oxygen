@@ -19,7 +19,8 @@
 //!   `oxy-api-tenancy` and the session routes read them from here (through
 //!   the prelude's `assume` until decompose R1);
 //! * session liveness, re-exported from `oxy-server-authz` (`assume_liveness`), so
-//!   callers keep resolving `assume::…` unchanged.
+//!   callers keep resolving `assume::…` unchanged. [`may_act_as`] and [`ActingAs`]
+//!   are re-exported from there too (`assume_authority`), since C2.
 //!
 //! It went down from `oxy-app`'s `server::api::admin::assume` (the base) on
 //! 2026-11-22 (decompose G2), and `oxy-app` re-exports it at that path. It is not in
@@ -30,8 +31,6 @@
 use axum::http::StatusCode;
 use oxy::database::client::establish_connection;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
-use sea_orm::DatabaseConnection;
-use uuid::Uuid;
 
 // The pure liveness-query cluster now lives in `oxy-server-authz` so the authz fact
 // loader and the partner tier can read session liveness without depending on `oxy-app`.
@@ -41,86 +40,11 @@ pub use oxy_server_authz::assume_liveness::{
     is_session_live, live_assumed_org_ids, live_sessions_for,
 };
 
-/// **Who may act as an org.** Two populations, one rule each:
-///
-/// * **Oxy staff** — any org. They always could (the synthetic-Owner seam);
-///   assume-role just makes it deliberate and audited.
-/// * **A partner** — only the clients they are assigned to, and only with
-///   `develop_apps`. Entering a client's product IS the data plane: it means
-///   reading their warehouse, their threads, their dashboards. An
-///   `account_manager` — whose whole point is "runs the relationship, cannot touch
-///   the data" — must not be able to walk in through this door, or the role split
-///   is decorative.
-///
-/// Re-checked on **every request** (not just at session creation), so revoking a
-/// partner's `develop_apps` or un-assigning a client kills a live session's reach
-/// immediately rather than at expiry.
-///
-/// Takes the [`Caller`], so both authorities are what the request's credential
-/// carries: an API token without `platform` is not staff here, and one without
-/// `partner` operates no partner.
-///
-/// [`Caller`]: oxy_server_authz::Caller
-pub async fn may_act_as(
-    db: &DatabaseConnection,
-    caller: &oxy_server_authz::Caller,
-    org_id: Uuid,
-) -> Option<ActingAs> {
-    // Staff acting as a tenant synthesize **Owner** in that org, so this door demands the
-    // capability that gates owner-level authority (`ManageOrgSettings`) — and honours the
-    // grant's scope, since it is a reach INTO a specific tenant rather than a console
-    // section.
-    //
-    // `is_staff()` alone would reopen exactly the hole the doc comment above warns about:
-    // an App Operator holds neither capability, and their legitimate reach into a tenant
-    // is the app data plane (`Ring::AppAccess` via `develop_apps`), which needs no
-    // impersonation at all. A Global Admin holds `ManageOrgSettings` at `Scope::All`, so
-    // nothing changes for them.
-    if oxy_server_authz::globals::platform_reaches(
-        db,
-        caller,
-        oxy_authz::Cap::ManageOrgSettings,
-        org_id,
-    )
-    .await
-    {
-        return Some(ActingAs::Staff);
-    }
-
-    // A partner acting as one of its clients.
-    use crate::guards::partner_authz::{PartnerCapability, partner_for_org, resolve_scope};
-    let partner_org_id = partner_for_org(db, org_id).await?;
-    let scope = resolve_scope(db, partner_org_id, caller).await?;
-    if !scope.allows(PartnerCapability::DevelopApps) {
-        return None;
-    }
-    if !scope.org_ids.contains(&org_id) {
-        return None;
-    }
-    Some(ActingAs::Partner)
-}
-
-/// Which authority a live session rests on — it decides the role the request runs
-/// with, so it must not be guessed.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ActingAs {
-    Staff,
-    Partner,
-}
-
-impl ActingAs {
-    /// Staff get Owner (what the old silent override gave them). A partner gets
-    /// **Admin**: enough to work inside the client's product, but the org's own
-    /// Owner remains untouchable — a partner administers a client, it never owns
-    /// one. Both are marked `is_global_override`, so `OrgAdminStrict` still shuts
-    /// billing and admin-promotion to them.
-    pub fn org_role(self) -> entity::org_members::OrgRole {
-        match self {
-            ActingAs::Staff => entity::org_members::OrgRole::Owner,
-            ActingAs::Partner => entity::org_members::OrgRole::Admin,
-        }
-    }
-}
+// The authority half — `may_act_as` and `ActingAs` — moved down to `oxy-server-authz`
+// (`assume_authority`) in C2 (2026-11-28), so the enforcement port's implementation
+// answers it without a dependency back on this crate. Re-exported so every
+// `assume::{may_act_as, ActingAs}` caller resolves unchanged.
+pub use oxy_server_authz::assume_authority::{ActingAs, may_act_as};
 
 // ── acting is a MODE, not a badge ─────────────────────────────────────────
 

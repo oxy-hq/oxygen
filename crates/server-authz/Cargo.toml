@@ -10,6 +10,10 @@ edition.workspace = true
 [dependencies]
 # The transport-agnostic decision model this crate wires into the app.
 oxy-authz = { workspace = true }
+# The enforcement driver port this crate implements (`enforcement`), and the plain
+# `Caller` its own `Caller` wraps.
+contracts-authz = { workspace = true }
+async-trait = { workspace = true }
 
 # Fact sources: DB entities + platform primitives.
 entity = { workspace = true }

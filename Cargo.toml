@@ -42,6 +42,7 @@ members = [
   "crates/app-core",
   "crates/auth",
   "crates/authz",
+  "crates/contracts-authz",
   "crates/server-authz",
   "crates/cameras",
   "crates/core",
@@ -133,6 +134,7 @@ oxy-previews = { path = "crates/previews" }
 oxy-feature-flags = { path = "crates/feature-flags" }
 oxy-custom-apps = { path = "crates/custom-apps" }
 oxy-authz = { path = "crates/authz" }
+contracts-authz = { path = "crates/contracts-authz" }
 oxy-server-authz = { path = "crates/server-authz" }
 oxy-billing = { path = "crates/billing" }
 oxy-cameras = { path = "crates/cameras" }

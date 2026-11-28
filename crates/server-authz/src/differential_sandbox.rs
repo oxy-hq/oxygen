@@ -15,7 +15,7 @@
 //!
 //! The token's facts are built the way a request builds them: a
 //! [`CredentialContext`] of the kind, through [`Caller`], through
-//! [`Caller::narrow`].
+//! [`Caller::narrow`](contracts_authz::Caller::narrow).
 
 use oxy_auth::token::{AppSandboxGrant, CredentialContext, StoredKind};
 use oxy_auth::types::AuthenticatedUser;

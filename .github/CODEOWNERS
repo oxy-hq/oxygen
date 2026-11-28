@@ -90,6 +90,9 @@ internal-docs/adr-neon-as-oltp-provider.md         @luong-komorebi @hotay
 crates/authz/                                      @luong-komorebi @hotay
 crates/auth/                                       @luong-komorebi @hotay
 crates/server-authz/                               @luong-komorebi @hotay
+# The enforcement port (C2, 2026-11-28): the plain `Caller` and the trait
+# server-authz implements, cut out of server-authz.
+crates/contracts-authz/                            @luong-komorebi @hotay
 # The login page carries both halves of sign-in and was uncovered until now:
 # magic link / SSO is Luong's, the crew PIN and the store's kiosk roster are
 # Mars's (#3243, #3248, #3267) — hence the backup.

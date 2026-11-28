@@ -1,0 +1,26 @@
+[package]
+name = "contracts-authz"
+version.workspace = true
+authors.workspace = true
+description = "The authorization enforcement driver port: the plain Caller and the AuthzEnforcer trait that oxy-server-authz implements (internal-docs/crate-tiers.md)"
+documentation.workspace = true
+publish.workspace = true
+edition.workspace = true
+
+[dependencies]
+# The decision model's vocabulary: the actions, resources, facts and token reach
+# the port speaks in.
+oxy-authz = { workspace = true }
+
+# `ActingAs::org_role` answers the org role enum; the port's reads take the
+# caller's own database handle.
+entity = { workspace = true }
+sea-orm = { workspace = true }
+
+uuid = { workspace = true }
+async-trait = { workspace = true }
+thiserror = { workspace = true }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[lints]
+workspace = true

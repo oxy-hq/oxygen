@@ -50,6 +50,15 @@ pub struct AppState {
     /// Compiled SemanticEngine cache (join graph + evaluator).
     /// Avoids rebuilding the engine on every compilation request.
     pub semantic_engine_cache: std::sync::Arc<SemanticEngineCache>,
+    /// The authorization enforcement driver port (`contracts_authz::AuthzEnforcer`),
+    /// for a domain that enforces without depending on `oxy-server-authz`. The host
+    /// builds it with `oxy_server_authz::enforcer()`; every implementation answers
+    /// exactly what the `oxy-server-authz` functions of the same names answer.
+    ///
+    /// Named through `oxy_server_authz::contract` because this crate already depends
+    /// on `oxy-server-authz`, and depending on `contracts-authz` directly would be a
+    /// new T1 → T1 line. D5 re-tiers this crate to T2 and names it directly.
+    pub authz: std::sync::Arc<dyn oxy_server_authz::contract::AuthzEnforcer>,
 }
 
 impl AppState {
@@ -83,6 +92,7 @@ pub fn bare_app_state() -> AppState {
         agentic_state: None,
         semantic_layer_cache: crate::workspace_cache::new_semantic_layer_cache(),
         semantic_engine_cache: crate::workspace_cache::new_semantic_engine_cache(),
+        authz: oxy_server_authz::enforcer(),
     }
 }
 
@@ -112,6 +122,7 @@ mod tests {
             agentic_state: None,
             semantic_layer_cache: crate::workspace_cache::new_semantic_layer_cache(),
             semantic_engine_cache: crate::workspace_cache::new_semantic_engine_cache(),
+            authz: oxy_server_authz::enforcer(),
         };
         // Construction does no I/O, so an unroutable URL is fine.
         let store = ClickHouseObservabilityStorage::new(

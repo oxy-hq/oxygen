@@ -3756,6 +3756,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "contracts-authz"
+version = "0.5.162"
+dependencies = [
+ "async-trait",
+ "entity",
+ "oxy-authz",
+ "sea-orm",
+ "thiserror 2.0.21",
+ "uuid",
+ "workspace-hack",
+]
+
+[[package]]
 name = "convert_case"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11214,8 +11227,10 @@ dependencies = [
 name = "oxy-server-authz"
 version = "0.5.162"
 dependencies = [
+ "async-trait",
  "axum",
  "chrono",
+ "contracts-authz",
  "entity",
  "oxy-auth",
  "oxy-authz",
