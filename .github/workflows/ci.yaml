@@ -1590,7 +1590,7 @@ jobs:
               elif .mode == "none" then
                 "Testing **none** of \($members) packages: no test can observe what this diff changes."
               elif $event == "pull_request" then
-                "Testing **all \($members)** workspace packages: this diff reaches every one (or the checkout was not a merge commit)."
+                "Testing **all \($members)** workspace packages: this diff reaches every one (or the checkout was not a merge commit, or the base could not be analysed: see the warning above)."
               else
                 "Testing **all \($members)** workspace packages: a \($event) run always does."
               end' "$RUNNER_TEMP/selection.json"
